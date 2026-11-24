@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # Runner labels and architectures are recorded in Documentation/Architecture.md
+    # after the first run; do not assume the architecture from the label.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record environment
+        run: |
+          uname -m
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Debug build (warnings are errors)
+        run: swift build -Xswiftc -warnings-as-errors -Xcc -Werror
+      - name: Test
+        run: swift test --enable-code-coverage
+      - name: Release build (warnings are errors)
+        run: swift build -c release -Xswiftc -warnings-as-errors -Xcc -Werror
+      - name: Archive coverage
+        if: always()
+        run: |
+          mkdir -p artifacts
+          swift test --show-codecov-path > artifacts/codecov-path.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.os }}
+          path: artifacts
