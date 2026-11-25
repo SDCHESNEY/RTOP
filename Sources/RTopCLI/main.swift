@@ -38,6 +38,7 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
         refreshIntervalMilliseconds: refreshMilliseconds
     )
     var renderer = ScreenRenderer()
+    let renderOptions = RenderOptions.detect(environment: ProcessInfo.processInfo.environment)
 
     // All inputs funnel into one stream consumed on the main actor.
     let (actions, sink) = AsyncStream<Action>.makeStream()
@@ -73,7 +74,7 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
 
     var exitCode: Int32 = 0
     func draw() -> Bool {
-        let frame = renderer.frame(for: ProcessTableView.render(state, size: state.terminalSize))
+        let frame = renderer.frame(for: ProcessTableView.render(state, size: state.terminalSize, options: renderOptions))
         if session.write(frame) { return true }
         renderer.invalidate()
         return false

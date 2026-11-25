@@ -1,5 +1,6 @@
 import DarwinSupport
 import Foundation
+import MonitorCore
 
 /// Phase 0 spike: exercises each native call once and reports what it sees.
 /// The Phase 1 samplers replace this; the wrappers below are the seed of them.
@@ -88,6 +89,71 @@ public enum NativeProbe {
         var n: UInt32 = 0
         if let e = NativeError(ds_cpu_ticks_read(&buf, cpuCount, &n), operation: "host_processor_info") { throw e }
         return buf.prefix(Int(n)).map { ($0.user, $0.system, $0.idle, $0.nice) }
+    }
+
+    // MARK: Memory, uptime, topology (Phase 2)
+
+    public static func memory() throws -> MemoryReading {
+        var vm = ds_vm_stats()
+        if let e = NativeError(ds_vm_stats_read(&vm), operation: "host_statistics64") { throw e }
+        return MemoryReading(
+            pageSizeBytes: vm.page_size_bytes,
+            freePages: MemoryMath.freePages(kernelFreeCount: vm.free_pages, speculative: vm.speculative_pages),
+            activePages: vm.active_pages,
+            inactivePages: vm.inactive_pages,
+            wiredPages: vm.wire_pages,
+            compressorPages: vm.compressor_pages,
+            purgeablePages: vm.purgeable_pages,
+            speculativePages: vm.speculative_pages,
+            fileBackedPages: vm.external_pages
+        )
+    }
+
+    public static func swap() throws -> SwapReading {
+        var swap = ds_swap_usage()
+        if let e = NativeError(ds_swap_usage_read(&swap), operation: "vm.swapusage") { throw e }
+        return SwapReading(totalBytes: swap.total_bytes, usedBytes: swap.used_bytes, freeBytes: swap.free_bytes)
+    }
+
+    public static func physicalMemoryBytes() throws -> UInt64 {
+        var value: UInt64 = 0
+        if let e = NativeError(ds_sysctl_u64("hw.memsize", &value), operation: "sysctl hw.memsize") { throw e }
+        return value
+    }
+
+    public static func bootTime() throws -> (seconds: Int64, microseconds: Int32) {
+        var sec: Int64 = 0
+        var usec: Int32 = 0
+        if let e = NativeError(ds_boottime(&sec, &usec), operation: "kern.boottime") { throw e }
+        return (sec, usec)
+    }
+
+    /// An absent key is expected (Intel, older systems) and yields nil.
+    static func sysctlInt(_ name: String) -> Int? {
+        var value: UInt64 = 0
+        guard NativeError(ds_sysctl_u64(name, &value), operation: name) == nil else { return nil }
+        return Int(exactly: value)
+    }
+
+    static func sysctlString(_ name: String) -> String? {
+        var buf = [CChar](repeating: 0, count: 128)
+        var len = 0
+        guard NativeError(ds_sysctl_string(name, &buf, buf.count, &len), operation: name) == nil else { return nil }
+        return String(decoding: buf.prefix(len).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    /// Reads `hw.perflevel*` once. Counts are reported as the OS gives them;
+    /// nothing here maps individual CPUs to a level.
+    public static func topology() -> CoreTopology {
+        var levels = [CoreTopology.Level]()
+        if let count = sysctlInt("hw.nperflevels"), count > 0, count <= 8 {
+            for index in 0..<count {
+                guard let logical = sysctlInt("hw.perflevel\(index).logicalcpu") else { continue }
+                levels.append(.init(index: index, name: sysctlString("hw.perflevel\(index).name"), logicalCPUs: logical))
+            }
+        }
+        return CoreTopology(
+            logicalCPUs: sysctlInt("hw.logicalcpu"), physicalCPUs: sysctlInt("hw.physicalcpu"), levels: levels)
     }
 
     public static func run() throws -> ProbeReport {

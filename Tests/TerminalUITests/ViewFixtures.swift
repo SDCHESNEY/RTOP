@@ -25,15 +25,37 @@ enum ViewFixtures {
         row(2000, "日本語アプリ", cpu: 1.0, rss: 4096, status: .stopped),
     ]
 
-    static func state(size: TerminalSize, rows: [ProcessSummary] = ViewFixtures.rows, selecting index: Int? = 0) -> AppState {
-        var state = AppState(terminalSize: size)
-        let snapshot = Snapshot(
-            sequence: 1, processes: rows,
-            cpu: .value(CPUReading(aggregatePercent: 12.5, perCorePercent: [10, 15])),
+    /// 16 GiB machine with 16 KiB pages; categories chosen to be round numbers.
+    static let memory = MemoryReading(
+        pageSizeBytes: 16384, freePages: 32768, activePages: 262_144, inactivePages: 196_608,
+        wiredPages: 131_072, compressorPages: 65536, purgeablePages: 6400, speculativePages: 12_800,
+        fileBackedPages: 81920)
+
+    static func snapshot(
+        sequence: UInt64, rows: [ProcessSummary] = ViewFixtures.rows, capturedAt: UInt64 = 12_000_000_000,
+        cpu: Availability<CPUReading> = .value(CPUReading(aggregatePercent: 12.5, perCorePercent: [0, 25, 60, 100])),
+        memory: Availability<MemoryReading> = .value(ViewFixtures.memory),
+        pressure: MemoryPressureReading = MemoryPressureReading(state: .normal, observedAtNanoseconds: 2_000_000_000)
+    ) -> Snapshot {
+        Snapshot(
+            sequence: sequence, capturedAtNanoseconds: capturedAt, processes: rows, cpu: cpu,
             load: .value(LoadAverage(one: 1.5, five: 2.25, fifteen: 3)),
+            memory: memory,
+            swap: .value(SwapReading(totalBytes: 2 << 30, usedBytes: 0, freeBytes: 2 << 30)),
+            pressure: pressure,
+            physicalMemoryBytes: .value(16 << 30),
+            uptimeSeconds: .value(100_000),
+            topology: .value(CoreTopology(
+                logicalCPUs: 12, physicalCPUs: 12,
+                levels: [.init(index: 0, name: "Performance", logicalCPUs: 8),
+                         .init(index: 1, name: "Efficiency", logicalCPUs: 4)])),
             warnings: [CollectionWarning(reason: .permissionDenied, count: 1)]
         )
-        _ = Reducer.reduce(&state, .snapshot(snapshot))
+    }
+
+    static func state(size: TerminalSize, rows: [ProcessSummary] = ViewFixtures.rows, selecting index: Int? = 0) -> AppState {
+        var state = AppState(terminalSize: size)
+        _ = Reducer.reduce(&state, .snapshot(snapshot(sequence: 1, rows: rows)))
         if let index, index > 0 { for _ in 0..<index { _ = Reducer.reduce(&state, .key(.down)) } }
         return state
     }

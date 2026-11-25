@@ -10,11 +10,12 @@ public enum ProcessTableView {
     private static let minimumNameWidth = 8
 
     enum Column: CaseIterable {
-        case pid, name, user, cpu, memory, state
+        case pid, ppid, name, user, cpu, memory, state
 
         var title: String {
             switch self {
             case .pid: "PID"
+            case .ppid: "PPID"
             case .name: "NAME"
             case .user: "USER"
             case .cpu: "CPU%"
@@ -27,6 +28,7 @@ public enum ProcessTableView {
         var width: Int {
             switch self {
             case .pid: 7
+            case .ppid: 7
             case .name: 0
             case .user: 10
             case .cpu: 6
@@ -35,7 +37,19 @@ public enum ProcessTableView {
             }
         }
 
-        var rightAligned: Bool { self == .pid || self == .cpu || self == .memory }
+        var rightAligned: Bool { self == .pid || self == .ppid || self == .cpu || self == .memory }
+
+        var sortKey: SortKey? {
+            switch self {
+            case .pid: .pid
+            case .ppid: nil
+            case .name: .name
+            case .user: .user
+            case .cpu: .cpu
+            case .memory: .memory
+            case .state: .state
+            }
+        }
     }
 
     /// Dropped from the end first when the terminal is narrow.
@@ -52,10 +66,15 @@ public enum ProcessTableView {
             guard required(chosen + [column]) <= width else { break }
             chosen.append(column)
         }
+        // The extra column only appears on wide terminals, after everything else fits.
+        if width >= ProcessTableLayout.wideColumns, chosen.count == dropOrder.count,
+           required(chosen + [.ppid]) <= width {
+            chosen.append(.ppid)
+        }
         return Column.allCases.filter(chosen.contains) // display order
     }
 
-    public static func render(_ state: AppState, size: TerminalSize) -> CellBuffer {
+    public static func render(_ state: AppState, size: TerminalSize, options: RenderOptions = RenderOptions()) -> CellBuffer {
         var buffer = CellBuffer(columns: size.columns, rows: size.rows)
         guard size.columns > 0, size.rows > 0 else { return buffer }
 
@@ -65,33 +84,15 @@ public enum ProcessTableView {
             return buffer
         }
 
-        drawTitle(&buffer, state)
+        OverviewView.draw(&buffer, state, options)
         let columns = visibleColumns(width: size.columns)
-        drawHeader(&buffer, columns: columns, y: ProcessTableLayout.titleRows)
+        drawHeader(&buffer, state, columns: columns, y: ProcessTableLayout.overviewRows(for: size), options: options)
         drawBody(&buffer, state, columns: columns)
         drawFooter(&buffer, state)
         return buffer
     }
 
-    // MARK: Title / footer
-
-    private static func drawTitle(_ buffer: inout CellBuffer, _ state: AppState) {
-        let style = Style(bold: true)
-        buffer.fillRow(0, style: style)
-        var parts = ["rtop"]
-        if let snapshot = state.snapshot {
-            parts.append("\(snapshot.processes.count) processes")
-            if let cpu = snapshot.cpu.value {
-                parts.append("CPU " + String(format: "%.1f%%", cpu.aggregatePercent))
-            }
-            if let load = snapshot.load.value {
-                parts.append("load " + String(format: "%.2f %.2f %.2f", load.one, load.five, load.fifteen))
-            }
-        } else {
-            parts.append("collecting…")
-        }
-        buffer.write(parts.joined(separator: "  "), x: 0, y: 0, style: style)
-    }
+    // MARK: Footer
 
     private static func drawFooter(_ buffer: inout CellBuffer, _ state: AppState) {
         let y = buffer.rows - 1
@@ -99,10 +100,15 @@ public enum ProcessTableView {
         buffer.fillRow(y, style: style)
 
         var text: String
-        if let message = state.messages.last {
+        if let editor = state.filterEditor {
+            text = "/" + TextSanitizer.sanitize(editor.text) + "_"
+            if let error = editor.error { text += "   ! " + error }
+            else { text += "   Enter keep  Esc cancel" }
+        } else if let message = state.messages.last {
             text = "refresh failed: " + TextSanitizer.sanitize(message.text)
         } else {
-            text = "q quit  ↑↓/jk move  PgUp/PgDn page"
+            text = "q quit  ↑↓/jk move  s sort  r reverse  / filter  space pause"
+            if !state.filterText.isEmpty { text = "filter: " + TextSanitizer.sanitize(state.filterText) + "  " + text }
             let limited = (state.snapshot?.warnings ?? []).reduce(0) { $0 + $1.count }
             if limited > 0 { text += "  · \(limited) limited" }
         }
@@ -125,28 +131,35 @@ public enum ProcessTableView {
         return column.rightAligned ? pad + clipped : clipped + pad
     }
 
-    private static func drawHeader(_ buffer: inout CellBuffer, columns: [Column], y: Int) {
+    private static func drawHeader(
+        _ buffer: inout CellBuffer, _ state: AppState, columns: [Column], y: Int, options: RenderOptions
+    ) {
         let style = Style(bold: true, underline: true)
         buffer.fillRow(y, style: style)
         let widths = columnWidths(columns, total: buffer.columns)
         var x = 0
         for column in columns {
             let w = widths[column] ?? 0
-            buffer.write(cellText(column.title, column: column, width: w), x: x, y: y, style: style)
+            var title = column.title
+            if column.sortKey == state.sortKey {
+                title += state.sortDescending ? options.descending : options.ascending
+            }
+            buffer.write(cellText(title, column: column, width: w), x: x, y: y, style: style)
             x += w + 1
         }
     }
 
     private static func drawBody(_ buffer: inout CellBuffer, _ state: AppState, columns: [Column]) {
-        let firstRow = ProcessTableLayout.titleRows + ProcessTableLayout.headerRows
-        let visible = ProcessTableLayout.visibleRows(for: TerminalSize(columns: buffer.columns, rows: buffer.rows))
+        let size = TerminalSize(columns: buffer.columns, rows: buffer.rows)
+        let firstRow = ProcessTableLayout.overviewRows(for: size) + ProcessTableLayout.headerRows
+        let visible = ProcessTableLayout.visibleRows(for: size)
 
         if state.snapshot == nil {
             buffer.write("Collecting…", x: 0, y: firstRow)
             return
         }
         if state.rows.isEmpty {
-            buffer.write("No processes.", x: 0, y: firstRow)
+            buffer.write(state.filter.isEmpty ? "No processes." : "No matching processes.", x: 0, y: firstRow)
             return
         }
 
@@ -172,6 +185,7 @@ public enum ProcessTableView {
     private static func text(for column: Column, row: ProcessSummary) -> String {
         switch column {
         case .pid: return String(row.identity.pid)
+        case .ppid: return row.parentPID.value.map { String($0) } ?? unavailableGlyph
         case .name: return TextSanitizer.sanitize(row.name)
         case .user: return row.userName.value.map(TextSanitizer.sanitize) ?? unavailableGlyph
         case .cpu: return row.cpuPercent.value.map { String(format: "%.1f", $0) } ?? unavailableGlyph

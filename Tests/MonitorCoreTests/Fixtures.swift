@@ -6,18 +6,19 @@ enum Fixtures {
     }
 
     static func process(
-        _ pid: Int32, start: UInt64 = 100, name: String = "proc", cpu: Double? = nil, resident: UInt64? = nil
+        _ pid: Int32, start: UInt64 = 100, name: String = "proc", cpu: Double? = nil, resident: UInt64? = nil,
+        user: String? = "user", uid: UInt32 = 501, status: ProcessStatus = .sleeping, path: String? = nil
     ) -> ProcessSummary {
         ProcessSummary(
             identity: identity(pid, start: start),
             parentPID: .value(1),
             name: name,
-            uid: .value(501),
-            userName: .value("user"),
+            uid: .value(uid),
+            userName: user.map { .value($0) } ?? .unavailable(.permissionDenied),
             cpuPercent: cpu.map { .value($0) } ?? .unavailable(.notYetSampled),
             residentBytes: resident.map { .value($0) } ?? .unavailable(.permissionDenied),
-            status: .sleeping,
-            executablePath: .value("/bin/\(name)")
+            status: status,
+            executablePath: .value(path ?? "/bin/\(name)")
         )
     }
 

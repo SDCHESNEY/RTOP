@@ -227,14 +227,19 @@ Tests: bounds, wrap, unavailable samples, pause/resume reducer.
 - Comparison session vs Activity Monitor, `top -l 2`, `ps`, `vm_stat`, `sysctl`: record hardware, macOS, toolchain, refresh interval, CPU convention, sample alignment, process identity in `Documentation/Metrics.md`. Use controlled single-core workload (e.g., `yes > /dev/null`) and treat spec thresholds as investigation guides (§11.2).
 
 ### Phase 2 Gate (spec §12)
-- [ ] CPU units, memory definitions, unknown-pressure semantics documented
-- [ ] Core-class labels only with validated mapping; otherwise counts separate
-- [ ] Sorting deterministic; filtering per grammar
-- [ ] Identity-based selection holds across exit/filter/sort
-- [ ] History bounded; pause doesn't block input or corrupt baselines
-- [ ] Goldens pass at required sizes/color modes
-- [ ] Reference comparisons recorded with conditions, discrepancies explained
-- [ ] Tag `v0.2`
+Status: implemented and automatically verified (233 tests: 111 MonitorCore, 39 MonitorDarwin, 83 TerminalUI; release build clean under warnings-as-errors; real binary exercised in a pty). Items marked *open* need a human or a decision.
+
+- [x] CPU units, memory definitions, unknown-pressure semantics documented (`Documentation/Metrics.md`)
+- [x] Core-class labels only with validated mapping; otherwise counts separate. No mapping is validated, so per-core bars are "unclassified" and `hw.perflevel*` counts are printed separately
+- [x] Sorting deterministic; filtering per grammar (`ProcessSortTests`, `ProcessFilterTests`, seeded property tests). Plain terms match the name only until Phase 3 collects command lines
+- [x] Identity-based selection holds across exit/filter/sort (`ReducerPhase2Tests`)
+- [x] History bounded; pause doesn't block input or corrupt baselines (`HistoryBufferTests`, pause reducer tests; the collector keeps running while paused)
+- [x] Goldens pass at required sizes/color modes (80×24, 120×40, 20×5; mono and 256-color compared in `OverviewViewTests`). *Note:* color is limited to bar/pressure foregrounds until Phase 4 themes
+- [ ] Reference comparisons recorded with conditions, discrepancies explained. *Open:* WP2.8 comparison against Activity Monitor, `top -l 2`, `ps`, `vm_stat` needs a human-run session; no figures are claimed
+- [ ] Pressure behavior validated on macOS 14. *Open:* only the development machine (macOS 27) was available; `unknown` until the first notification
+- [ ] Tag `v0.2`. *Open:* CHANGELOG is updated; no commit or tag has been made
+
+Decisions taken in Phase 2 (recorded in `Documentation/Architecture.md` and `Metrics.md`): sort direction persists across key changes; the overview is 7 rows at ≥60×20 and one title row below; Space/`s`/`r`/`/` are text while the filter editor is open; stale = three ticks without a snapshot; free pages exclude speculative pages like `vm_stat`.
 
 ---
 

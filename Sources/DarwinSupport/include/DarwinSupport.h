@@ -91,6 +91,8 @@ ds_status ds_swap_usage_read(ds_swap_usage *out);
 
 /* Reads an integer sysctl by name (4- or 8-byte). Absent keys return DS_ERRNO/ENOENT. */
 ds_status ds_sysctl_u64(const char *name, uint64_t *out);
+/* Reads a string sysctl into buf (NUL-terminated, truncated to capacity-1). *out_len excludes the NUL. */
+ds_status ds_sysctl_string(const char *name, char *buf, size_t capacity, size_t *out_len);
 ds_status ds_boottime(int64_t *out_seconds, int32_t *out_microseconds);
 
 /* ---- Signal bridge (self-pipe) ----

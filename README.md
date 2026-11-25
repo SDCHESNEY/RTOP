@@ -1,6 +1,6 @@
 # rtop
 
-A terminal-based system monitor for macOS written in Swift. **Status: Phase 1 (read-only process table, `v0.1` in progress).** See `docs/implementation.md` for the plan and `docs/technicalspecification.md` for the specification.
+A terminal-based system monitor for macOS written in Swift. **Status: Phase 2 (overview panels, sorting, filtering, history, pause; `v0.2` in progress).** See `docs/implementation.md` for the plan and `docs/technicalspecification.md` for the specification.
 
 ## Build and test
 

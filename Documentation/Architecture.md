@@ -40,3 +40,12 @@ Run the actual TUI from a real terminal. To step through it in Xcode, launch `rt
 - **Escape key.** A lone ESC resolves as Escape after 40 ms. In Phase 1 Escape quits (no modal or filter context exists yet).
 - **Exit codes.** 0 normal exit (including q, Ctrl-C, SIGTERM, SIGHUP, stdin EOF), 1 startup/runtime failure (not a terminal, signal bridge failure, terminal disconnect), 2 invalid command line.
 - **End-to-end check.** `Scripts/pty_lifecycle_check.py` and `Scripts/pty_idle_check.py` drive the real binary in a pseudo-terminal.
+
+## Phase 2 design notes
+
+- **Presentation vs. collection.** `AppState.snapshot`/`rows`/histories are what is *presented*. While paused, new snapshots only update `pendingSnapshot` and `lastAcceptedSequence`; resume presents the newest one. Rows are always `filter → sort` of the presented snapshot, rebuilt in one place (`Reducer.rebuildRows`), and the selection-loss rule from Phase 1 applies to filtering as well as exits.
+- **Filter editing is a reducer context.** While `filterEditor` is non-nil, printable keys are text (including `q`, `k`, `s`, `r`, space); only Ctrl-C quits, Esc cancels, arrows still navigate.
+- **Layout.** `ProcessTableLayout.overviewRows` is 7 at ≥60x20 and 1 (title only) below that, so the 20x5 and 40x8 layouts are unchanged apart from the sort arrow. At ≥100 columns the table gains PPID and sparklines widen to 60 samples.
+- **Native adapters.** `NativeProcessAPI` gained memory, swap, physical memory, uptime, topology, and pressure with default "unsupported" implementations, so existing fakes keep working. Topology and physical memory are cached by `DarwinCollector`. `MemoryPressureMonitor` is `@unchecked Sendable`: its reading is guarded by one lock.
+- **Rendering options.** `RenderOptions` (mono/256-color, ASCII glyphs) is detected from environment hints only (`NO_COLOR`, `TERM`, locale) in `main.swift`; Phase 4 adds `--color`/`--theme`. Bars, sparklines, and the sort arrow have ASCII fallbacks; the other glyphs (`—`, `…`, `·`) do not.
+- **Stale indicator.** The reducer has no clock, so staleness counts `.tick` actions since the last accepted snapshot.

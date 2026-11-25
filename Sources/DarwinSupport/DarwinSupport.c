@@ -212,6 +212,21 @@ ds_status ds_sysctl_u64(const char *name, uint64_t *out) {
     return err_kind(DS_SHORT_RESULT);
 }
 
+ds_status ds_sysctl_string(const char *name, char *buf, size_t capacity, size_t *out_len) {
+    if (capacity == 0) return err_errno(EINVAL);
+    size_t len = capacity;
+    if (sysctlbyname(name, buf, &len, NULL, 0) != 0) {
+        int e = errno;
+        buf[0] = '\0';
+        /* ENOMEM means the value did not fit: report it as a short buffer, not a missing key. */
+        return e == ENOMEM ? err_kind(DS_SHORT_RESULT) : err_errno(e);
+    }
+    if (len >= capacity) len = capacity - 1;
+    buf[len] = '\0';
+    *out_len = strnlen(buf, len);
+    return ok();
+}
+
 ds_status ds_boottime(int64_t *out_seconds, int32_t *out_microseconds) {
     struct timeval tv;
     size_t len = sizeof tv;

@@ -111,15 +111,17 @@ public struct CPUReading: Sendable, Equatable {
     }
 }
 
-/// Raw page categories, kept separate (populated from Phase 2).
+/// Raw page categories, kept separate. A category the OS did not provide is
+/// `nil` (unavailable), never zero.
 public struct MemoryReading: Sendable, Equatable {
     public var pageSizeBytes: UInt64
-    public var freePages, activePages, inactivePages, wiredPages: UInt64
-    public var compressorPages, purgeablePages, speculativePages: UInt64
+    public var freePages, activePages, inactivePages, wiredPages: UInt64?
+    public var compressorPages, purgeablePages, speculativePages, fileBackedPages: UInt64?
 
     public init(
-        pageSizeBytes: UInt64, freePages: UInt64, activePages: UInt64, inactivePages: UInt64,
-        wiredPages: UInt64, compressorPages: UInt64, purgeablePages: UInt64, speculativePages: UInt64
+        pageSizeBytes: UInt64, freePages: UInt64? = nil, activePages: UInt64? = nil,
+        inactivePages: UInt64? = nil, wiredPages: UInt64? = nil, compressorPages: UInt64? = nil,
+        purgeablePages: UInt64? = nil, speculativePages: UInt64? = nil, fileBackedPages: UInt64? = nil
     ) {
         self.pageSizeBytes = pageSizeBytes
         self.freePages = freePages
@@ -129,6 +131,54 @@ public struct MemoryReading: Sendable, Equatable {
         self.compressorPages = compressorPages
         self.purgeablePages = purgeablePages
         self.speculativePages = speculativePages
+        self.fileBackedPages = fileBackedPages
+    }
+}
+
+/// Last memory-pressure state reported by the OS notification source.
+/// `unknown` until the first notification: absence of events is not "normal".
+public enum MemoryPressureState: Sendable, Equatable {
+    case unknown, normal, warning, critical
+}
+
+public struct MemoryPressureReading: Sendable, Equatable {
+    public var state: MemoryPressureState
+    /// Monotonic time of the notification that set `state`; nil when never observed.
+    public var observedAtNanoseconds: UInt64?
+
+    public init(state: MemoryPressureState = .unknown, observedAtNanoseconds: UInt64? = nil) {
+        self.state = state
+        self.observedAtNanoseconds = observedAtNanoseconds
+    }
+
+    public static let unknown = MemoryPressureReading()
+}
+
+/// Core counts as reported by the OS. Performance-level counts do not prove
+/// which per-core tick entries belong to which level, so they are reported
+/// separately and per-core usage stays unclassified.
+public struct CoreTopology: Sendable, Equatable {
+    public struct Level: Sendable, Equatable {
+        public var index: Int
+        public var name: String?
+        public var logicalCPUs: Int
+
+        public init(index: Int, name: String?, logicalCPUs: Int) {
+            self.index = index
+            self.name = name
+            self.logicalCPUs = logicalCPUs
+        }
+    }
+
+    public var logicalCPUs: Int?
+    public var physicalCPUs: Int?
+    /// Empty on Intel and other hardware without performance levels.
+    public var levels: [Level]
+
+    public init(logicalCPUs: Int?, physicalCPUs: Int?, levels: [Level] = []) {
+        self.logicalCPUs = logicalCPUs
+        self.physicalCPUs = physicalCPUs
+        self.levels = levels
     }
 }
 
@@ -175,6 +225,10 @@ public struct Snapshot: Sendable, Equatable {
     public var load: Availability<LoadAverage>
     public var memory: Availability<MemoryReading>
     public var swap: Availability<SwapReading>
+    public var pressure: MemoryPressureReading
+    public var physicalMemoryBytes: Availability<UInt64>
+    public var uptimeSeconds: Availability<Double>
+    public var topology: Availability<CoreTopology>
     public var warnings: [CollectionWarning]
 
     public init(
@@ -185,6 +239,10 @@ public struct Snapshot: Sendable, Equatable {
         load: Availability<LoadAverage> = .unavailable(.notYetSampled),
         memory: Availability<MemoryReading> = .unavailable(.unsupported),
         swap: Availability<SwapReading> = .unavailable(.unsupported),
+        pressure: MemoryPressureReading = .unknown,
+        physicalMemoryBytes: Availability<UInt64> = .unavailable(.unsupported),
+        uptimeSeconds: Availability<Double> = .unavailable(.unsupported),
+        topology: Availability<CoreTopology> = .unavailable(.unsupported),
         warnings: [CollectionWarning] = []
     ) {
         self.sequence = sequence
@@ -194,6 +252,10 @@ public struct Snapshot: Sendable, Equatable {
         self.load = load
         self.memory = memory
         self.swap = swap
+        self.pressure = pressure
+        self.physicalMemoryBytes = physicalMemoryBytes
+        self.uptimeSeconds = uptimeSeconds
+        self.topology = topology
         self.warnings = warnings
     }
 }

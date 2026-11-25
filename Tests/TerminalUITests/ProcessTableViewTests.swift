@@ -6,12 +6,21 @@ import Testing
     private func lines(_ b: CellBuffer) -> [String] { (0..<b.rows).map { b.rowText($0) } }
     private func blank(_ width: Int) -> String { String(repeating: " ", count: width) }
 
+    private static let overview80 = [
+        "rtop  6 processes  up 1d 3h  load 1.50 2.25 3.00                                ",
+        "CPU  [████░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  12.5%                         ▂        ",
+        "Core ▁▃▅█  unclassified · 12 logical · Performance 8 · Efficiency 4             ",
+        "Mem  [██████████░░░░░░░░░░░░░] 7.0G/16.0G approx. used                         ▄",
+        "     active 4.0G  inactive 3.0G  wired 2.0G  compressor 1.0G  free 512.0M       ",
+        "     purgeable 100.0M  speculative 200.0M  file-backed 1.2G                     ",
+        "Swap 0B/2.0G  pressure normal (last notified 10s ago)                           ",
+    ]
+
     @Test func golden80x24() {
         let size = TerminalSize(columns: 80, rows: 24)
         let out = lines(ProcessTableView.render(ViewFixtures.state(size: size, selecting: 2), size: size))
-        var expected = [
-            "rtop  6 processes  CPU 12.5%  load 1.50 2.25 3.00                               ",
-            "    PID NAME                                  USER         CPU%     MEM STATE   ",
+        var expected = Self.overview80 + [
+            "   PID▲ NAME                                  USER         CPU%     MEM STATE   ",
             "      1 launchd                               root          0.0   11.8M running ",
             "     98 logd                                  root          0.3    7.6M sleeping",
             "    412 Safari                                shawn        12.3  512.0M sleeping",
@@ -19,33 +28,40 @@ import Testing
             "   1234 Xcode                                 shawn       145.7    3.0G running ",
             "   2000 日本語アプリ                          shawn         1.0      4K stopped ",
         ]
-        expected += Array(repeating: blank(80), count: 15)
-        expected.append("q quit  ↑↓/jk move  PgUp/PgDn page  · 1 limited                                 ")
+        expected += Array(repeating: blank(80), count: 9)
+        expected.append("q quit  ↑↓/jk move  s sort  r reverse  / filter  space pause  · 1 limited       ")
         #expect(out == expected)
     }
 
-    @Test func golden20x5MinimalLayoutKeepsSelectionVisible() {
-        let size = TerminalSize(columns: 20, rows: 5)
-        let out = lines(ProcessTableView.render(ViewFixtures.state(size: size, selecting: 2), size: size))
-        #expect(out == [
-            "rtop  6 processes  C",
-            "    PID NAME        ",
-            "     98 logd        ",
-            "    412 Safari      ",
-            "q quit  ↑↓/jk move  ",
-        ])
+    @Test func golden120x40AddsColumnAndWidensHistories() {
+        let size = TerminalSize(columns: 120, rows: 40)
+        var state = ViewFixtures.state(size: size, selecting: 0)
+        for n in 2...4 { _ = Reducer.reduce(&state, .snapshot(ViewFixtures.snapshot(sequence: UInt64(n)))) }
+        let out = lines(ProcessTableView.render(state, size: size))
+        #expect(out[0].hasPrefix("rtop  6 processes  up 1d 3h  load 1.50 2.25 3.00"))
+        #expect(out[1].hasPrefix("CPU  [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  12.5%"))
+        #expect(out[1].contains("▂▂▂▂")) // four samples of the same value
+        #expect(out[7].hasPrefix("   PID▲    PPID NAME"))
+        #expect(out[7].hasSuffix("USER         CPU%     MEM STATE   "))
+        #expect(out[8].hasPrefix("      1       1 launchd"))
+        #expect(out[8].hasSuffix("root          0.0   11.8M running "))
+        #expect(out[13].hasPrefix("   2000       1 日本語アプリ"))
+        #expect(out[14...38].allSatisfy { $0 == blank(120) })
+        #expect(out[39].hasPrefix("q quit"))
     }
 
     @Test func golden40x8DropsLowPriorityColumns() {
         let size = TerminalSize(columns: 40, rows: 8)
         let out = lines(ProcessTableView.render(ViewFixtures.state(size: size, selecting: 0), size: size))
-        #expect(out[1] == "    PID NAME       CPU%     MEM STATE   ")
+        #expect(out[1] == "   PID▲ NAME       CPU%     MEM STATE   ")
         #expect(out[5] == "    777 kernel_…      —       — ?       ")
         #expect(!out[1].contains("USER"))
     }
 
     @Test func columnPriorityWhenNarrowing() {
         func titles(_ width: Int) -> [String] { ProcessTableView.visibleColumns(width: width).map(\.title) }
+        #expect(titles(120) == ["PID", "PPID", "NAME", "USER", "CPU%", "MEM", "STATE"])
+        #expect(titles(99) == ["PID", "NAME", "USER", "CPU%", "MEM", "STATE"])
         #expect(titles(80) == ["PID", "NAME", "USER", "CPU%", "MEM", "STATE"])
         #expect(titles(60) == ["PID", "NAME", "USER", "CPU%", "MEM", "STATE"])
         #expect(titles(40) == ["PID", "NAME", "CPU%", "MEM", "STATE"])
@@ -81,7 +97,7 @@ import Testing
         let size = TerminalSize(columns: 80, rows: 24)
         let b = ProcessTableView.render(ViewFixtures.state(size: size, selecting: 2), size: size)
         for y in 0..<b.rows {
-            let expected = (y == 4) // title, header, then rows 0,1,2 -> y == 4 is index 2
+            let expected = (y == 10) // 7 overview rows, header, then rows 0,1,2 -> y == 10 is index 2
             #expect(b[0, y].style.inverse == expected, "row \(y)")
             #expect(b[79, y].style.inverse == expected, "row \(y) right edge")
         }
@@ -90,7 +106,7 @@ import Testing
     @Test func unavailableValuesRenderAsDashNeverZero() {
         let size = TerminalSize(columns: 80, rows: 24)
         let b = ProcessTableView.render(ViewFixtures.state(size: size), size: size)
-        let row = b.rowText(5)
+        let row = b.rowText(11)
         #expect(row.contains("kernel_task"))
         #expect(row.filter { $0 == "—" }.count == 3) // user, cpu, memory
         #expect(!row.contains("0.0"))
@@ -107,7 +123,7 @@ import Testing
                 }
             }
         }
-        #expect(b.rowText(2).contains("bad?[2Jname??line"))
+        #expect(b.rowText(8).contains("bad?[2Jname??line"))
     }
 
     @Test func overlongNameIsTruncatedWithEllipsis() {

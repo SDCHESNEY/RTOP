@@ -12,9 +12,33 @@ public protocol NativeProcessAPI {
     func path(pid: Int32) throws -> String
     func cpuTicks() throws -> [CPUTicks]
     func loadAverage() -> LoadAverage?
+    func memory() throws -> MemoryReading
+    func swap() throws -> SwapReading
+    func physicalMemoryBytes() throws -> UInt64
+    func uptimeSeconds() throws -> Double
+    /// Read once and cached by the collector.
+    func topology() -> CoreTopology?
+    func memoryPressure() -> MemoryPressureReading
+}
+
+/// Defaults let test doubles implement only what they exercise; the
+/// unimplemented metrics report as unsupported.
+extension NativeProcessAPI {
+    func unsupported(_ operation: String) -> NativeError {
+        NativeError(kind: .errno, code: ENOTSUP, operation: operation)
+    }
+
+    public func memory() throws -> MemoryReading { throw unsupported("memory") }
+    public func swap() throws -> SwapReading { throw unsupported("swap") }
+    public func physicalMemoryBytes() throws -> UInt64 { throw unsupported("physical memory") }
+    public func uptimeSeconds() throws -> Double { throw unsupported("uptime") }
+    public func topology() -> CoreTopology? { nil }
+    public func memoryPressure() -> MemoryPressureReading { .unknown }
 }
 
 public struct LiveNativeProcessAPI: NativeProcessAPI {
+    private let pressureMonitor = MemoryPressureMonitor()
+
     public init() {}
 
     public func listPIDs() throws -> [Int32] { try NativeProbe.listPIDs() }
@@ -25,6 +49,19 @@ public struct LiveNativeProcessAPI: NativeProcessAPI {
     public func cpuTicks() throws -> [CPUTicks] {
         try NativeProbe.cpuTicks().map { CPUTicks(user: $0.user, system: $0.system, idle: $0.idle, nice: $0.nice) }
     }
+
+    public func memory() throws -> MemoryReading { try NativeProbe.memory() }
+    public func swap() throws -> SwapReading { try NativeProbe.swap() }
+    public func physicalMemoryBytes() throws -> UInt64 { try NativeProbe.physicalMemoryBytes() }
+
+    public func uptimeSeconds() throws -> Double {
+        let boot = try NativeProbe.bootTime()
+        return MemoryMath.uptimeSeconds(
+            bootSeconds: boot.seconds, bootMicroseconds: boot.microseconds, now: Date().timeIntervalSince1970)
+    }
+
+    public func topology() -> CoreTopology? { NativeProbe.topology() }
+    public func memoryPressure() -> MemoryPressureReading { pressureMonitor.current }
 
     public func loadAverage() -> LoadAverage? {
         var loads = [Double](repeating: 0, count: 3)
@@ -41,6 +78,7 @@ func unavailableReason(for error: Error) -> UnavailableReason {
         switch native.code {
         case EPERM, EACCES: return .permissionDenied
         case ESRCH: return .processExited
+        case ENOTSUP: return .unsupported
         default: return .collectionFailed
         }
     case .shortResult: return .malformed
@@ -124,6 +162,9 @@ public final class DarwinCollector: SystemCollector {
     private let users: UserNameCache
     private var processCPU = ProcessCPUTracker()
     private var hostCPU = HostCPUTracker()
+    // Static or slow-changing: read once, never per process or per frame.
+    private var cachedTopology: Availability<CoreTopology>?
+    private var cachedPhysicalMemory: UInt64?
 
     public convenience init() {
         self.init(api: LiveNativeProcessAPI(), clock: SystemMonotonicClock())
@@ -210,6 +251,29 @@ public final class DarwinCollector: SystemCollector {
         return (row, limited)
     }
 
+    private func physicalMemory() -> Availability<UInt64> {
+        if let cachedPhysicalMemory { return .value(cachedPhysicalMemory) }
+        do {
+            let bytes = try api.physicalMemoryBytes()
+            cachedPhysicalMemory = bytes
+            return .value(bytes)
+        } catch {
+            return .unavailable(unavailableReason(for: error)) // retried next pass
+        }
+    }
+
+    private func topology() -> Availability<CoreTopology> {
+        if let cachedTopology { return cachedTopology }
+        let result: Availability<CoreTopology>
+        if let topology = api.topology(), topology.logicalCPUs != nil || !topology.levels.isEmpty {
+            result = .value(topology)
+        } else {
+            result = .unavailable(.unsupported)
+        }
+        cachedTopology = result
+        return result
+    }
+
     public func collect() throws -> Snapshot {
         let pids = try api.listPIDs()
 
@@ -231,6 +295,15 @@ public final class DarwinCollector: SystemCollector {
             hostReading = .unavailable(unavailableReason(for: error))
         }
 
+        let memory: Availability<MemoryReading>
+        do { memory = .value(try api.memory()) } catch { memory = .unavailable(unavailableReason(for: error)) }
+
+        let swap: Availability<SwapReading>
+        do { swap = .value(try api.swap()) } catch { swap = .unavailable(unavailableReason(for: error)) }
+
+        let uptime: Availability<Double>
+        do { uptime = .value(try api.uptimeSeconds()) } catch { uptime = .unavailable(unavailableReason(for: error)) }
+
         let warnings = UnavailableReason.allCases.compactMap { reason in
             warningCounts[reason].map { CollectionWarning(reason: reason, count: $0) }
         }
@@ -239,6 +312,12 @@ public final class DarwinCollector: SystemCollector {
             processes: rows,
             cpu: hostReading,
             load: api.loadAverage().map { .value($0) } ?? .unavailable(.collectionFailed),
+            memory: memory,
+            swap: swap,
+            pressure: api.memoryPressure(),
+            physicalMemoryBytes: physicalMemory(),
+            uptimeSeconds: uptime,
+            topology: topology(),
             warnings: warnings
         )
     }
