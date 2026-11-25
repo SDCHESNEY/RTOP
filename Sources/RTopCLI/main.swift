@@ -1,103 +1,123 @@
-import DarwinSupport
 import Darwin
+import DarwinSupport
 import Foundation
 import MonitorCore
 import MonitorDarwin
 import TerminalUI
 
-// Phase 0 spike entry point. Full option parsing arrives in Phase 1/4.
-
-func printUsage() {
-    print("""
-    usage: rtop [--help] [--version] [--spike-native] [--spike-terminal]
-
-      --spike-native    Phase 0: print one native-collection probe and exit.
-      --spike-terminal  Phase 0: enter/restore terminal mode; press q or Ctrl-C.
-    """)
+func writeError(_ message: String) {
+    FileHandle.standardError.write(Data("rtop: \(message)\n".utf8))
 }
 
-func runNativeSpike() -> Int32 {
-    do {
-        let r = try NativeProbe.run()
-        print("processes:        \(r.processCount)")
-        print("self:             pid \(r.ownBSD.pid) ppid \(r.ownBSD.ppid) uid \(r.ownBSD.uid) name \(r.ownBSD.name)")
-        print("self start:       \(r.ownBSD.startSeconds).\(String(format: "%06llu", r.ownBSD.startMicroseconds))")
-        print("self path:        \(r.ownPath)")
-        print("self rss/virt:    \(r.ownTask.residentBytes) / \(r.ownTask.virtualBytes) bytes, threads \(r.ownTask.threadCount)")
-        print("self cpu time:    user \(r.ownTask.userTimeNanoseconds) ns, system \(r.ownTask.systemTimeNanoseconds) ns")
-        print("logical CPUs:     \(r.logicalCPUCount)")
-        print("physical memory:  \(r.physicalMemoryBytes) bytes")
-        print("page size:        \(r.pageSizeBytes) bytes")
-        print("vm pages:         free \(r.freePages), wired \(r.wiredPages), compressor \(r.compressorPages)")
-        print("swap total:       \(r.swapTotalBytes.map(String.init) ?? "unavailable") bytes")
-        print("boot time:        \(r.bootTime)")
-        print("perf levels:      \(r.perfLevelCount.map(String.init) ?? "unavailable")")
-        return 0
-    } catch {
-        FileHandle.standardError.write(Data("rtop: \(error)\n".utf8))
-        return 1
-    }
-}
+/// Runs the interactive monitor and returns the process exit code
+/// (0 normal exit, 1 startup/runtime failure; usage errors are handled earlier).
+@MainActor
+func runMonitor(refreshMilliseconds: Int) async -> Int32 {
+    // Suspension is disabled in the first release: raw mode already turns
+    // Ctrl-Z into an ordinary byte, and ignoring SIGTSTP covers `kill -TSTP`.
+    // A dead terminal must surface as a write error, not kill the process.
+    signal(SIGTSTP, SIG_IGN)
+    signal(SIGPIPE, SIG_IGN)
 
-func runTerminalSpike() -> Int32 {
     var signalFD: Int32 = -1
     guard ds_signal_bridge_install(&signalFD).kind == DS_OK else {
-        FileHandle.standardError.write(Data("rtop: cannot install signal bridge\n".utf8))
+        writeError("cannot install signal handlers")
         return 1
     }
     defer { ds_signal_bridge_remove() }
 
     let session = TerminalSession()
     do { try session.enter() } catch {
-        FileHandle.standardError.write(Data("rtop: \(error)\n".utf8))
+        writeError("\(error)")
         return 1
     }
-    defer { session.restore() }
+    defer { session.restore() } // runs after the worker and input threads are joined (below)
 
-    func draw(_ message: String) {
-        session.write("\u{1B}[2J\u{1B}[H\(message)")
+    var state = AppState(
+        terminalSize: session.size() ?? TerminalSize(columns: 80, rows: 24),
+        refreshIntervalMilliseconds: refreshMilliseconds
+    )
+    var renderer = ScreenRenderer()
+
+    // All inputs funnel into one stream consumed on the main actor.
+    let (actions, sink) = AsyncStream<Action>.makeStream()
+
+    let worker = SamplingWorker { DarwinCollector() }
+    worker.start()
+
+    let pump = TerminalInputPump(signalFD: signalFD) { event in
+        switch event {
+        case .key(let key): sink.yield(.key(key))
+        case .resize:
+            sink.yield(.resize(TerminalSession.querySize(fd: STDOUT_FILENO) ?? TerminalSize(columns: 80, rows: 24)))
+        case .terminate, .endOfInput: sink.yield(.terminate)
+        }
     }
-    draw("rtop terminal spike - press q or Ctrl-C to quit; resize the window to test SIGWINCH.\r\n")
+    pump.start()
 
-    var fds = [pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0),
-               pollfd(fd: signalFD, events: Int16(POLLIN), revents: 0)]
-    while true {
-        let n = poll(&fds, nfds_t(fds.count), -1)
-        if n < 0 { if errno == EINTR { continue }; return 1 }
-
-        if fds[1].revents & Int16(POLLIN) != 0 {
-            var buf = [UInt8](repeating: 0, count: 16)
-            let got = read(signalFD, &buf, buf.count)
-            for b in buf.prefix(max(got, 0)) {
-                switch Int32(b) {
-                case SIGWINCH:
-                    var ws = winsize()
-                    _ = ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws)
-                    draw("resized: \(ws.ws_col)x\(ws.ws_row)\r\n")
-                case SIGINT, SIGTERM, SIGHUP:
-                    return 0
-                default: break
-                }
+    let forwarder = Task {
+        for await event in worker.events {
+            switch event {
+            case .snapshot(let snapshot): sink.yield(.snapshot(snapshot))
+            case .failed(let sequence, let message): sink.yield(.collectionFailed(sequence: sequence, message: message))
             }
         }
-        if fds[0].revents & Int16(POLLIN | POLLHUP) != 0 {
-            var buf = [UInt8](repeating: 0, count: 64)
-            let got = read(STDIN_FILENO, &buf, buf.count)
-            if got <= 0 { return 0 } // EOF
-            // In raw mode Ctrl-C arrives as 0x03 rather than SIGINT.
-            if buf.prefix(got).contains(where: { $0 == UInt8(ascii: "q") || $0 == 0x03 }) { return 0 }
+    }
+    let interval = Duration.milliseconds(refreshMilliseconds)
+    let ticker = Task {
+        while !Task.isCancelled {
+            sink.yield(.tick) // first tick fires immediately
+            try? await Task.sleep(for: interval)
         }
     }
+
+    var exitCode: Int32 = 0
+    func draw() -> Bool {
+        let frame = renderer.frame(for: ProcessTableView.render(state, size: state.terminalSize))
+        if session.write(frame) { return true }
+        renderer.invalidate()
+        return false
+    }
+
+    if !draw() { exitCode = 1 }
+    if exitCode == 0 {
+        loop: for await action in actions {
+            for effect in Reducer.reduce(&state, action) {
+                switch effect {
+                case .requestRefresh: worker.requestRefresh()
+                case .exit: break loop
+                }
+            }
+            if !draw() {
+                exitCode = 1 // terminal disconnected
+                break
+            }
+        }
+    }
+
+    // Shutdown order: stop producers, join threads, then the deferred terminal restore.
+    ticker.cancel()
+    pump.stopAndJoin()
+    worker.stopAndJoin()
+    sink.finish()
+    _ = await forwarder.value
+    return exitCode
 }
 
-let args = Array(CommandLine.arguments.dropFirst())
-switch args.first {
-case "--help", "-h": printUsage(); exit(0)
-case "--version": print("\(BuildInfo.productName) \(BuildInfo.version)"); exit(0)
-case "--spike-native": exit(runNativeSpike())
-case "--spike-terminal": exit(runTerminalSpike())
-case nil: printUsage(); exit(2)
-default:
-    FileHandle.standardError.write(Data("rtop: unknown option \(args[0])\n".utf8))
+switch Options.parse(Array(CommandLine.arguments.dropFirst())) {
+case .failure(let error):
+    writeError("\(error)\n\n\(Options.usage())")
     exit(2)
+case .success(.help):
+    print(Options.usage())
+    exit(0)
+case .success(.version):
+    print("\(BuildInfo.productName) \(BuildInfo.version)")
+    exit(0)
+case .success(.spikeNative):
+    exit(runNativeSpike())
+case .success(.spikeTerminal):
+    exit(runTerminalSpike())
+case .success(.run(let refresh)):
+    exit(await runMonitor(refreshMilliseconds: refresh))
 }

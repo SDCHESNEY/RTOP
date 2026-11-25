@@ -164,14 +164,18 @@ Tests: golden fixtures at 80×24 and 20×5 (add 120×40 in Phase 2).
 - Refuse to run if stdin/stdout aren't TTYs with a clear diagnostic.
 
 ### Phase 1 Gate (spec §12)
-- [ ] Rows show PID, name, user, CPU, memory, state when available
-- [ ] Restricted metadata → partial rows, not failed refresh
-- [ ] CPU unavailable until a second valid measurement
-- [ ] Refresh interval validation; no unbounded queued refreshes
-- [ ] q / Ctrl-C / handled SIGTERM / recoverable errors restore the terminal
-- [ ] Resize tests incl. 20×5 don't crash (pty test + manual)
-- [ ] State transitions and sampler tested with fakes
-- [ ] Tag `v0.1`; update CHANGELOG
+Status: implemented and automatically verified (148 tests: 50 MonitorCore, 32 MonitorDarwin, 66 TerminalUI; debug and release builds clean under warnings-as-errors; real binary exercised in a pty). Items marked *open* need a human or a decision.
+
+- [x] Rows show PID, name, user, CPU, memory, state when available (golden tests at 80×24 / 40×8 / 20×5; live run)
+- [x] Restricted metadata → partial rows, not failed refresh. On the dev machine ~⅓ of processes return EPERM for `proc_pidinfo`; they appear as partial rows (see `Documentation/Architecture.md`)
+- [x] CPU unavailable until a second valid measurement (unit, fake-collector, and live tests)
+- [x] Refresh interval validation; no unbounded queued refreshes (`OptionsTests`, `SamplingWorkerTests`)
+- [x] q / Ctrl-C / Esc / handled SIGTERM / SIGHUP / SIGINT restore the terminal (`Scripts/pty_lifecycle_check.py`, exact `termios` compared in `Scripts/pty_idle_check.py`). *Open:* the same manual run in real Terminal.app and iTerm2
+- [x] Resize incl. 20×5, 5×2, 1×1 and a resize storm do not crash (render-bounds test over widths 1–130, pty script). *Open:* manual check in a real terminal
+- [x] State transitions and sampler tested with fakes
+- [ ] Tag `v0.1`. *Open:* CHANGELOG is updated; no commit or tag has been made
+
+Decisions taken in Phase 1 (all recorded in `Documentation/Architecture.md`): selection-loss rule, PID-only identity for restricted processes, Escape quits until modal/filter contexts exist, Ctrl-Z/SIGTSTP disabled, default order is PID ascending.
 
 ---
 

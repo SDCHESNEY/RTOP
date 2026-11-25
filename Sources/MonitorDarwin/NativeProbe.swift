@@ -23,6 +23,7 @@ public struct ProcessBSD: Sendable, Equatable {
     public var pid: Int32
     public var ppid: Int32
     public var uid: UInt32
+    public var status: UInt32
     public var startSeconds: UInt64
     public var startMicroseconds: UInt64
     public var name: String
@@ -54,7 +55,7 @@ public enum NativeProbe {
             $0.withMemoryRebound(to: CChar.self, capacity: 64) { String(cString: $0) }
         }
         return ProcessBSD(
-            pid: out.pid, ppid: out.ppid, uid: out.uid,
+            pid: out.pid, ppid: out.ppid, uid: out.uid, status: out.status,
             startSeconds: out.start_seconds, startMicroseconds: out.start_microseconds,
             name: name
         )

@@ -25,3 +25,18 @@ CI runner labels in `.github/workflows/ci.yml` are provisional: confirm the real
 ## Debugging workflow
 
 Run the actual TUI from a real terminal. To step through it in Xcode, launch `rtop` in a terminal and use Debug > Attach to Process.
+
+## Phase 1 design notes
+
+- **Data flow.** `DarwinCollector` (worker thread) → `SamplingWorker` (`AsyncStream`, newest-only) → one `Action` stream on the main actor → `Reducer` → `ProcessTableView` → `ScreenRenderer` → `TerminalSession.write`. The reducer is pure and returns `[Effect]`; `main.swift` runs the effects.
+- **Threads.** Sampler thread (owns the non-`Sendable` collector, created on that thread), input thread (stdin + signal pipe, owns the decoder), and the main actor. Ticks are produced by a `Task` and turn into `requestRefresh()`; a request while a refresh is running or queued is dropped, so a slow collector cannot build a backlog.
+- **`@unchecked Sendable`.** Used for `SamplingWorker`, `TerminalInputPump`, and `ManualClock` only. Each documents its invariant: all mutable state is guarded by one lock/condition (or confined to one thread).
+- **Shutdown order.** Cancel ticker → join input thread → join sampler thread → finish streams → restore terminal (deferred) → remove signal handlers.
+- **Selection rule.** Selection follows process identity. If the selected process disappears, selection moves to the first surviving row after its old position, else the nearest surviving row before it, else the first row. A reused PID with a new start time is a different process and is never inherited.
+- **Partial rows.** On this machine `proc_pidinfo` returns EPERM for roughly a third of processes (other users' / system processes) while `proc_pidpath` still works. Those rows are kept: identity is PID-only, name comes from the executable path, user/parent/state are unavailable, and CPU is unavailable because a PID-only identity cannot be baselined safely. Phase 3 may add a `sysctl(KERN_PROC_PID)` fallback for start time and parent.
+- **Default order.** Rows are sorted by PID ascending until Phase 2 adds sorting.
+- **Display width.** `DisplayWidth` approximates East Asian Width plus zero-width combining marks; ambiguous-width characters count as one column. Emulators differ, so wide-character alignment can be off by a column in some terminals.
+- **Suspend.** Ctrl-Z is an ordinary byte in raw mode and is ignored; SIGTSTP is ignored so `kill -TSTP` cannot leave the terminal raw. Documented and intentional for the first release.
+- **Escape key.** A lone ESC resolves as Escape after 40 ms. In Phase 1 Escape quits (no modal or filter context exists yet).
+- **Exit codes.** 0 normal exit (including q, Ctrl-C, SIGTERM, SIGHUP, stdin EOF), 1 startup/runtime failure (not a terminal, signal bridge failure, terminal disconnect), 2 invalid command line.
+- **End-to-end check.** `Scripts/pty_lifecycle_check.py` and `Scripts/pty_idle_check.py` drive the real binary in a pseudo-terminal.
