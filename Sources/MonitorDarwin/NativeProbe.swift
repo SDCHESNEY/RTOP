@@ -79,6 +79,28 @@ public enum NativeProbe {
         return String(decoding: buf.prefix(len).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
+    /// Upper bound on bytes read for one process's arguments (the kernel's
+    /// `kern.argmax` is typically 1 MiB, including the environment).
+    public static let maxProcArgsBytes = 1 << 20
+
+    /// Raw `KERN_PROCARGS2` bytes, bounded. Only the leading argc/path/arguments
+    /// are interpreted by `ProcArgsParser`; the environment part is dropped by the caller.
+    public static func procArgs(pid: Int32) throws -> [UInt8] {
+        var buffer = [UInt8](repeating: 0, count: maxProcArgsBytes)
+        var length = 0
+        if let e = NativeError(ds_proc_args(pid, &buffer, buffer.count, &length), operation: "sysctl(KERN_PROCARGS2)") {
+            throw e
+        }
+        return Array(buffer.prefix(length))
+    }
+
+    /// Delivers one signal to one process; `0`/negative PIDs are refused in C.
+    /// Returns nil on success, otherwise the errno captured at the call.
+    public static func sendSignal(pid: Int32, signal: Int32) -> Int32? {
+        let status = ds_send_signal(pid, signal)
+        return status.kind == DS_OK ? nil : status.code
+    }
+
     /// Cumulative per-logical-CPU tick counters as (user, system, idle, nice).
     public static func cpuTicks() throws -> [(user: UInt32, system: UInt32, idle: UInt32, nice: UInt32)] {
         var cpuCount: UInt32 = 0

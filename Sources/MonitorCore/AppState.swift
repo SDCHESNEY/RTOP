@@ -58,8 +58,28 @@ public struct FilterEditor: Sendable, Equatable {
     }
 }
 
+/// The open detail pane. `details` is nil while loading. A reply is accepted
+/// only if it carries this pane's identity *and* generation.
+public struct DetailPane: Sendable, Equatable {
+    public var identity: ProcessIdentity
+    public var generation: UInt64
+    public var details: ProcessDetails?
+}
+
+/// Where the signal dialog is in its confirmation sequence:
+/// `confirm` (stage 1) → `confirmProtected` (stage 2, protected targets only)
+/// → `sending` → closed, with the outcome as a status message.
+public struct SignalWorkflow: Sendable, Equatable {
+    public enum Stage: Sendable, Equatable { case confirm, confirmProtected, sending }
+
+    public var request: SignalRequest
+    public var stage: Stage
+    /// Shown in the dialog, e.g. after a revalidation sent the user back to stage 1.
+    public var notice: String?
+}
+
 public struct StatusMessage: Sendable, Equatable {
-    public enum Kind: Sendable, Equatable { case refreshFailed }
+    public enum Kind: Sendable, Equatable { case refreshFailed, signalResult }
     public var kind: Kind
     public var text: String
 
@@ -93,6 +113,19 @@ public struct AppState: Sendable, Equatable {
     public var selection: ProcessIdentity?
     public var scrollOffset = 0
     public var terminalSize: TerminalSize
+    /// Show processes as a parent/child tree. Sort applies among siblings.
+    public var treeMode = false
+    /// Parallel to `rows`; empty outside tree mode.
+    public var rowDepths: [Int] = []
+    /// Tree rows shown only as ancestors of a filter match.
+    public var contextRows: Set<ProcessIdentity> = []
+    public var detailPane: DetailPane?
+    public var detailGeneration: UInt64 = 0
+    public var detailCache = DetailCache()
+    public var signalWorkflow: SignalWorkflow?
+    public var showHelp = false
+    /// The monitor's own PID, which it refuses to signal. 0 = unknown (refuses nothing extra).
+    public var ownPID: Int32 = 0
     public var messages: [StatusMessage] = []
     public var refreshIntervalMilliseconds: Int
 
@@ -122,11 +155,18 @@ public enum Action: Sendable, Equatable {
     case collectionFailed(sequence: UInt64, message: String)
     case resize(TerminalSize)
     case tick
+    /// A lazy detail read finished. Ignored unless identity and generation match the open pane.
+    case detailsLoaded(generation: UInt64, details: ProcessDetails)
+    /// Outcome of an `Effect.sendSignal` for exactly this request.
+    case signalResult(request: SignalRequest, result: Result<SignalSent, ControlError>)
     /// SIGINT/SIGTERM/SIGHUP, or loss of the input stream.
     case terminate
 }
 
 public enum Effect: Sendable, Equatable {
     case requestRefresh
+    case loadDetails(identity: ProcessIdentity, generation: UInt64)
+    /// Handled by the store with a `ProcessControlling`; the outcome returns as `.signalResult`.
+    case sendSignal(SignalRequest)
     case exit
 }

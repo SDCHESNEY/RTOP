@@ -29,7 +29,7 @@ import Testing
             "   2000 日本語アプリ                          shawn         1.0      4K stopped ",
         ]
         expected += Array(repeating: blank(80), count: 9)
-        expected.append("q quit  ↑↓/jk move  s sort  r reverse  / filter  space pause  · 1 limited       ")
+        expected.append("q quit  s sort  / filter  t tree  d details  x signal  ? help  · 1 limited      ")
         #expect(out == expected)
     }
 

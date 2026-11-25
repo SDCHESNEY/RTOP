@@ -57,6 +57,19 @@ ds_status ds_proc_task_info(pid_t pid, ds_proc_task *out);
 /* Writes a NUL-terminated path; *out_len excludes the NUL. */
 ds_status ds_proc_path(pid_t pid, char *buf, size_t capacity, size_t *out_len);
 
+/* Reads the raw KERN_PROCARGS2 buffer (argc, path, arguments, then environment)
+ * into buf. *out_len is the number of bytes the kernel returned (<= capacity).
+ * The caller parses only argc/path/arguments and must not retain the rest.
+ * Typical failures: EPERM (other users' processes), ESRCH, EINVAL (zombies). */
+ds_status ds_proc_args(pid_t pid, uint8_t *buf, size_t capacity, size_t *out_len);
+
+/* ---- Process control ---- */
+
+/* Sends `signal` to exactly one process. Refuses pid <= 0 (never a process
+ * group) with EINVAL before calling kill(2). Returns DS_ERRNO with errno
+ * captured immediately after the call. */
+ds_status ds_send_signal(pid_t pid, int signal);
+
 /* ---- CPU (Mach) ---- */
 
 typedef struct {

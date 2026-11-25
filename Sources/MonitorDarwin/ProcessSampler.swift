@@ -19,6 +19,8 @@ public protocol NativeProcessAPI {
     /// Read once and cached by the collector.
     func topology() -> CoreTopology?
     func memoryPressure() -> MemoryPressureReading
+    /// Raw `KERN_PROCARGS2` bytes for one process.
+    func procArgs(pid: Int32) throws -> [UInt8]
 }
 
 /// Defaults let test doubles implement only what they exercise; the
@@ -34,6 +36,7 @@ extension NativeProcessAPI {
     public func uptimeSeconds() throws -> Double { throw unsupported("uptime") }
     public func topology() -> CoreTopology? { nil }
     public func memoryPressure() -> MemoryPressureReading { .unknown }
+    public func procArgs(pid: Int32) throws -> [UInt8] { throw unsupported("process arguments") }
 }
 
 public struct LiveNativeProcessAPI: NativeProcessAPI {
@@ -61,6 +64,7 @@ public struct LiveNativeProcessAPI: NativeProcessAPI {
     }
 
     public func topology() -> CoreTopology? { NativeProbe.topology() }
+    public func procArgs(pid: Int32) throws -> [UInt8] { try NativeProbe.procArgs(pid: pid) }
     public func memoryPressure() -> MemoryPressureReading { pressureMonitor.current }
 
     public func loadAverage() -> LoadAverage? {
@@ -249,6 +253,43 @@ public final class DarwinCollector: SystemCollector {
             executablePath: path
         )
         return (row, limited)
+    }
+
+    /// Reads command line, thread count and virtual size for one process.
+    /// The identity is re-checked first, so a reused PID never shows another
+    /// process's data: a different start time means "exited".
+    public func loadDetails(for identity: ProcessIdentity) -> ProcessDetails {
+        let pid = identity.pid
+        guard let expected = identity.start else { return .unavailable(identity, .collectionFailed) }
+        do {
+            let bsd = try api.bsdInfo(pid: pid)
+            guard ProcessStartTime(seconds: bsd.startSeconds, microseconds: bsd.startMicroseconds) == expected
+            else { return .unavailable(identity, .processExited) }
+        } catch {
+            return .unavailable(identity, unavailableReason(for: error))
+        }
+
+        let commandLine: Availability<ProcessDetails.CommandLine>
+        do {
+            switch ProcArgsParser.parse(try api.procArgs(pid: pid)) {
+            case .success(let parsed): commandLine = .value(parsed.commandLine) // environment already dropped
+            case .failure: commandLine = .unavailable(.malformed)
+            }
+        } catch {
+            commandLine = .unavailable(unavailableReason(for: error))
+        }
+
+        var threads: Availability<Int32> = .unavailable(.collectionFailed)
+        var virtual: Availability<UInt64> = .unavailable(.collectionFailed)
+        do {
+            let task = try api.taskInfo(pid: pid)
+            threads = .value(task.threadCount)
+            virtual = .value(task.virtualBytes)
+        } catch {
+            threads = .unavailable(unavailableReason(for: error))
+            virtual = threads.unavailableReason.map { .unavailable($0) } ?? virtual
+        }
+        return ProcessDetails(identity: identity, commandLine: commandLine, threadCount: threads, virtualBytes: virtual)
     }
 
     private func physicalMemory() -> Availability<UInt64> {

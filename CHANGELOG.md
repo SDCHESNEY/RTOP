@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Phase 3 — details, tree, safe signalling
+- Detail pane (`d`/Enter): path, command line (from `KERN_PROCARGS2`, arguments only), parent, user, start time, CPU, resident/virtual size, threads. Lazy, generation-tagged, identity-checked; unavailable fields show their reason.
+- `ProcArgsParser` (bounds-checked, truncation-aware) and an identity-keyed LRU `DetailCache`.
+- Process tree (`t`): PID 1 root, synthetic "Unattached" group for missing/reused parents and cycles, bounded depth, sorting among siblings, filter matches with dimmed ancestor context.
+- Signals (`x`): modal with SIGTERM default, per-signal explanation, SIGKILL warning, second `y` confirmation for root-owned/system targets, Left/Right resets confirmation. `ProcessController` refuses PID ≤ 0, > 99999, 1 and itself, re-reads the start time before `kill`, maps `EPERM`/`ESRCH`, and reports "Signal sent" (accepted, not dead).
+- Help overlay (`?`); footer hints and help are generated from one key-binding table.
+- `Documentation/Permissions.md`: visibility limits, signalling workflow, residual PID race.
+- Fix: `ds_list_pids` no longer returns zero PIDs from vanished slots in the middle of the list.
+
 ### Phase 2 — overview, sorting, filtering, history
 - Memory categories (active, inactive, wired, compressor, free, purgeable, speculative, file-backed), swap, physical memory, uptime, and an "Approx. used" headline (wired + active + compressor) with checked arithmetic.
 - Memory pressure from the dispatch memory-pressure source: `unknown` until the first notification, last state kept with its age.

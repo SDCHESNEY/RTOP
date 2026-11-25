@@ -26,10 +26,19 @@ Run `rtop` from a real terminal (Terminal.app, iTerm2); Xcode's debug console is
 
 | Key | Action |
 |---|---|
-| `q`, Ctrl-C, Esc | Quit |
+| `q`, Ctrl-C | Quit |
+| Esc | Close the innermost dialog or pane; quit if none is open |
 | Up/Down, `j`/`k` | Move selection |
-| Page Up/Page Down | Move by a page |
-| Home/End | First/last row |
+| Page Up/Page Down, Home/End | Move by a page / first and last row |
+| `s`, `r` | Cycle sort field / reverse |
+| `/` | Edit the filter (`pid:`, `user:`, `path:`) |
+| Space | Pause/resume the display |
+| `t` | Toggle the process tree |
+| `d`, Enter | Show details of the selected process |
+| `x` | Send a signal (SIGTERM by default; asks for confirmation) |
+| `?` | Help |
+
+Signalling never happens without an explicit confirmation; root-owned and system processes need a second `y`. PID 1, `rtop` itself, and processes whose start time cannot be read are refused. See `Documentation/Permissions.md`.
 
 Unavailable values show `—` (never zero). CPU% needs two samples, so it fills in after the first refresh. Ctrl-Z (suspend) is disabled in this release.
 

@@ -86,9 +86,16 @@ public enum ProcessTableView {
 
         OverviewView.draw(&buffer, state, options)
         let columns = visibleColumns(width: size.columns)
-        drawHeader(&buffer, state, columns: columns, y: ProcessTableLayout.overviewRows(for: size), options: options)
-        drawBody(&buffer, state, columns: columns)
+        if state.detailPane != nil {
+            DetailsView.draw(&buffer, state, options)
+        } else {
+            drawHeader(&buffer, state, columns: columns, y: ProcessTableLayout.overviewRows(for: size), options: options)
+            drawBody(&buffer, state, columns: columns, options: options)
+        }
         drawFooter(&buffer, state)
+        // Overlays last, highest precedence on top (see KeyBindings.precedence).
+        if state.showHelp { Overlay.drawHelp(&buffer, options) }
+        if let workflow = state.signalWorkflow { Overlay.drawSignalDialog(&buffer, workflow, options) }
         return buffer
     }
 
@@ -103,11 +110,18 @@ public enum ProcessTableView {
         if let editor = state.filterEditor {
             text = "/" + TextSanitizer.sanitize(editor.text) + "_"
             if let error = editor.error { text += "   ! " + error }
-            else { text += "   Enter keep  Esc cancel" }
+            else { text += "   " + KeyBindings.footer(for: .filterEditor) }
+        } else if state.signalWorkflow != nil {
+            text = KeyBindings.footer(for: .signalModal)
+        } else if state.showHelp {
+            text = KeyBindings.footer(for: .help)
         } else if let message = state.messages.last {
-            text = "refresh failed: " + TextSanitizer.sanitize(message.text)
+            let prefix = message.kind == .refreshFailed ? "refresh failed: " : ""
+            text = prefix + TextSanitizer.sanitize(message.text)
+        } else if state.detailPane != nil {
+            text = KeyBindings.footer(for: .details)
         } else {
-            text = "q quit  ↑↓/jk move  s sort  r reverse  / filter  space pause"
+            text = KeyBindings.footer(for: .main)
             if !state.filterText.isEmpty { text = "filter: " + TextSanitizer.sanitize(state.filterText) + "  " + text }
             let limited = (state.snapshot?.warnings ?? []).reduce(0) { $0 + $1.count }
             if limited > 0 { text += "  · \(limited) limited" }
@@ -149,7 +163,9 @@ public enum ProcessTableView {
         }
     }
 
-    private static func drawBody(_ buffer: inout CellBuffer, _ state: AppState, columns: [Column]) {
+    private static func drawBody(
+        _ buffer: inout CellBuffer, _ state: AppState, columns: [Column], options: RenderOptions
+    ) {
         let size = TerminalSize(columns: buffer.columns, rows: buffer.rows)
         let firstRow = ProcessTableLayout.overviewRows(for: size) + ProcessTableLayout.headerRows
         let visible = ProcessTableLayout.visibleRows(for: size)
@@ -170,15 +186,24 @@ public enum ProcessTableView {
         for (offset, row) in state.rows[start..<end].enumerated() {
             let y = firstRow + offset
             let selected = row.identity == state.selection
-            let style = Style(inverse: selected)
+            let style = Style(dim: state.contextRows.contains(row.identity), inverse: selected)
+            let depth = state.treeMode && start + offset < state.rowDepths.count ? state.rowDepths[start + offset] : 0
             buffer.fillRow(y, style: style)
             var x = 0
             for column in columns {
                 let w = widths[column] ?? 0
-                buffer.write(cellText(text(for: column, row: row), column: column, width: w), x: x, y: y, style: style)
+                var content = text(for: column, row: row)
+                if column == .name, depth > 0 { content = treeIndent(depth: depth, options: options) + content }
+                buffer.write(cellText(content, column: column, width: w), x: x, y: y, style: style)
                 x += w + 1
             }
         }
+    }
+
+    /// Two columns per level (capped), then a branch glyph. Depth beyond the cap
+    /// is not shown; the layout still lists every process once.
+    private static func treeIndent(depth: Int, options: RenderOptions) -> String {
+        String(repeating: " ", count: min(depth - 1, 12) * 2) + (options.asciiGlyphs ? "`- " : "└ ")
     }
 
     /// All OS-derived strings pass through the sanitizer here.

@@ -113,6 +113,35 @@ private final class Counter: @unchecked Sendable {
         #expect(finished.value == 1, "join must not return while collection is running")
     }
 
+    @Test func detailRequestsRunOnTheWorkerAndKeepTheirGeneration() async {
+        let worker = SamplingWorker {
+            FakeCollector(steps: [.snapshot(Fixtures.snapshot(0, []))], detailsProvider: { identity in
+                ProcessDetails(identity: identity, commandLine: .value(.init(arguments: ["x"])))
+            })
+        }
+        worker.start()
+        var iterator = worker.detailEvents.makeAsyncIterator()
+        #expect(worker.requestDetails(for: Fixtures.identity(7), generation: 3))
+        let event = await iterator.next()
+        #expect(event?.generation == 3)
+        #expect(event?.details.identity == Fixtures.identity(7))
+        worker.stopAndJoin()
+        #expect(!worker.requestDetails(for: Fixtures.identity(7), generation: 4))
+        #expect(await iterator.next() == nil)
+    }
+
+    @Test func detailReadWhileRefreshIsBusyDoesNotQueueUnbounded() {
+        let worker = SamplingWorker { FakeCollector(steps: [.snapshot(Fixtures.snapshot(0, []))]) }
+        // Not started: requests are refused, nothing accumulates.
+        #expect(!worker.requestDetails(for: Fixtures.identity(1), generation: 1))
+        worker.stopAndJoin()
+    }
+
+    @Test func unsupportedCollectorReportsUnavailableDetails() {
+        let d = FakeCollector(steps: [.snapshot(Fixtures.snapshot(0, []))]).loadDetails(for: Fixtures.identity(1))
+        #expect(d.commandLine == .unavailable(.unsupported))
+    }
+
     @Test func stopWithoutStartDoesNotHang() {
         let worker = SamplingWorker { FakeCollector(steps: [.snapshot(Fixtures.snapshot(0, []))]) }
         worker.stopAndJoin()

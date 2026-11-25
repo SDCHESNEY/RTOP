@@ -37,6 +37,8 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
         terminalSize: session.size() ?? TerminalSize(columns: 80, rows: 24),
         refreshIntervalMilliseconds: refreshMilliseconds
     )
+    state.ownPID = getpid()
+    let controller = ProcessController()
     var renderer = ScreenRenderer()
     let renderOptions = RenderOptions.detect(environment: ProcessInfo.processInfo.environment)
 
@@ -64,6 +66,11 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
             }
         }
     }
+    let detailForwarder = Task {
+        for await event in worker.detailEvents {
+            sink.yield(.detailsLoaded(generation: event.generation, details: event.details))
+        }
+    }
     let interval = Duration.milliseconds(refreshMilliseconds)
     let ticker = Task {
         while !Task.isCancelled {
@@ -86,6 +93,12 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
             for effect in Reducer.reduce(&state, action) {
                 switch effect {
                 case .requestRefresh: worker.requestRefresh()
+                case .loadDetails(let identity, let generation):
+                    worker.requestDetails(for: identity, generation: generation)
+                case .sendSignal(let request):
+                    // Synchronous on purpose: no suspension point between the
+                    // controller's identity check and its kill call.
+                    sink.yield(.signalResult(request: request, result: controller.send(request)))
                 case .exit: break loop
                 }
             }
@@ -102,6 +115,7 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
     worker.stopAndJoin()
     sink.finish()
     _ = await forwarder.value
+    _ = await detailForwarder.value
     return exitCode
 }
 

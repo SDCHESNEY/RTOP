@@ -15,6 +15,15 @@ public struct SystemMonotonicClock: MonotonicClock {
 /// the collector on its own thread and never shares it.
 public protocol SystemCollector {
     func collect() throws -> Snapshot
+    /// Reads the slow-changing details of one process. Never throws: every
+    /// field reports its own availability. Runs on the worker thread.
+    func loadDetails(for identity: ProcessIdentity) -> ProcessDetails
+}
+
+extension SystemCollector {
+    public func loadDetails(for identity: ProcessIdentity) -> ProcessDetails {
+        .unavailable(identity, .unsupported)
+    }
 }
 
 public struct CollectionFailure: Error, Sendable, Equatable, CustomStringConvertible {
@@ -35,11 +44,20 @@ public final class FakeCollector: SystemCollector {
     private var index = 0
     /// Optional hook run at the start of every call (used to simulate slowness).
     private let onCollect: (@Sendable () -> Void)?
+    private let detailsProvider: (@Sendable (ProcessIdentity) -> ProcessDetails)?
 
-    public init(steps: [Step], onCollect: (@Sendable () -> Void)? = nil) {
+    public init(
+        steps: [Step], onCollect: (@Sendable () -> Void)? = nil,
+        detailsProvider: (@Sendable (ProcessIdentity) -> ProcessDetails)? = nil
+    ) {
         precondition(!steps.isEmpty, "FakeCollector needs at least one step")
         self.steps = steps
         self.onCollect = onCollect
+        self.detailsProvider = detailsProvider
+    }
+
+    public func loadDetails(for identity: ProcessIdentity) -> ProcessDetails {
+        detailsProvider?(identity) ?? .unavailable(identity, .unsupported)
     }
 
     public func collect() throws -> Snapshot {

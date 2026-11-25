@@ -286,15 +286,19 @@ Tests: every transition, PID reuse mid-confirmation, selection change while moda
 - `Documentation/Permissions.md`: unprivileged visibility limits, EPERM cases, GUI app/service restart observations (record real observations only, no universal claims).
 
 ### Phase 3 Gate (spec §12)
-- [ ] Every signal needs explicit confirmation; protected targets need second stage
-- [ ] PID 1, self, invalid, unverifiable identities cannot be signalled
-- [ ] Identity rechecked immediately pre-delivery; race documented
-- [ ] Success = accepted, not dead
-- [ ] Owned-child tests: terminate, stop/continue, explicit escalation
-- [ ] Stale detail results rejected; inaccessible command line handled
-- [ ] Tree handles missing parents and cycles
-- [ ] Permission/service behavior documented without universal claims
-- [ ] Tag `v0.3`
+Status: implemented and automatically verified (352 tests: 185 MonitorCore, 70 MonitorDarwin, 97 TerminalUI; debug and release builds clean under warnings-as-errors; real binary exercised in a pty, including a real SIGTERM to an owned child). Items marked *open* need a human or a decision.
+
+- [x] Every signal needs explicit confirmation; protected targets need second stage (`SignalWorkflowTests`; Enter cannot satisfy stage 2)
+- [x] PID 1, self, invalid, unverifiable identities cannot be signalled (`ProcessControllerGuardTests` individually per guard; reducer refuses before opening the dialog)
+- [x] Identity rechecked immediately pre-delivery; race documented (`Documentation/Permissions.md`)
+- [x] Success = accepted, not dead ("Signal sent … may still be running"; ignored-SIGTERM child test)
+- [x] Owned-child tests: terminate, stop/continue, explicit escalation, ESRCH after exit, forged identity (`OwnedChildSignalTests`)
+- [x] Stale detail results rejected; inaccessible command line handled (`DetailsReducerTests`, `DarwinDetailsTests`, `ProcArgsParserTests`)
+- [x] Tree handles missing parents and cycles (`ProcessTreeTests`, incl. PID reuse, depth bound, 5,000 nodes)
+- [ ] Permission/service behavior documented without universal claims. *Open:* visibility and workflow are documented; real GUI-app/service restart observations still need a human-run session and are intentionally not claimed
+- [ ] Tag `v0.3`. *Open:* CHANGELOG is updated; no commit or tag has been made
+
+Decisions taken in Phase 3 (recorded in `Documentation/Architecture.md`): the detail pane replaces the table area; the "Unattached" group is a non-selectable-target row with PID -1; Enter confirms stage 1 but only `y` confirms the protected stage 2; an open dialog is cancelled when its target's identity leaves the snapshot; PID-only (restricted) rows cannot be signalled; `ds_list_pids` drops mid-list zero entries.
 
 ---
 

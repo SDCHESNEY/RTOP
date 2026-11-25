@@ -45,8 +45,13 @@ ds_status ds_list_pids(pid_t **out_pids, int *out_count) {
         }
         if ((size_t)written < capacity_bytes) {
             int count = written / (int)sizeof(pid_t);
-            /* Drop trailing zero entries libproc may leave for vanished slots. */
-            while (count > 0 && buf[count - 1] == 0) count--;
+            /* libproc leaves zero entries for slots whose process vanished during the
+             * fill, at the end or in the middle. Zero is never a listed process. */
+            int kept = 0;
+            for (int i = 0; i < count; i++) {
+                if (buf[i] != 0) buf[kept++] = buf[i];
+            }
+            count = kept;
             *out_pids = buf;
             *out_count = count;
             return ok();
@@ -115,6 +120,32 @@ ds_status ds_proc_path(pid_t pid, char *buf, size_t capacity, size_t *out_len) {
     buf[len] = '\0';
     *out_len = len;
     return ok();
+}
+
+ds_status ds_proc_args(pid_t pid, uint8_t *buf, size_t capacity, size_t *out_len) {
+    if (capacity < sizeof(int)) return err_errno(EINVAL);
+    int mib[3] = { CTL_KERN, KERN_PROCARGS2, (int)pid };
+    size_t len = capacity;
+    errno = 0;
+    if (sysctl(mib, 3, buf, &len, NULL, 0) != 0) {
+        /* ENOMEM means the buffer was too small; the prefix is still valid. */
+        if (errno != ENOMEM) return err_errno(errno ? errno : EIO);
+        len = capacity;
+    }
+    if (len > capacity) len = capacity;
+    *out_len = len;
+    return ok();
+}
+
+/* ---- Process control ---- */
+
+ds_status ds_send_signal(pid_t pid, int sig) {
+    if (pid <= 0) return err_errno(EINVAL); /* 0 and negatives address process groups */
+    errno = 0;
+    int rc = kill(pid, sig);
+    int e = errno; /* captured immediately */
+    if (rc == 0) return ok();
+    return err_errno(e ? e : EIO);
 }
 
 /* ---- CPU ---- */
