@@ -49,7 +49,7 @@ Parallelizable inside Phase 1/2: Models/Reducer/Sort/Filter (pure) can proceed w
 Tasks:
 1. Reconcile the current Xcode project (`RTOP/RTOP/main.swift`, product `RTOP`) with the spec's SwiftPM layout (§4.3). Decision to record in `Documentation/Architecture.md`: either (a) convert to a Swift package opened in Xcode (spec default), or (b) keep the Xcode project and add local package targets. Prefer (a) with executable product named `rtop`.
 2. Create `Package.swift` with targets: `RTopCLI` (executable), `MonitorCore`, `MonitorDarwin`, `TerminalUI`, `DarwinSupport` (C), and test targets `MonitorCoreTests`, `MonitorDarwinTests`, `TerminalUITests`.
-3. Set platform `.macOS(.v14)`, `swiftLanguageModes: [.v6]`, and strict concurrency; add `-warnings-as-errors` for project targets in CI only (not for local dev).
+3. Set platform `.macOS(.v26)`, `swiftLanguageModes: [.v6]`, and strict concurrency; add `-warnings-as-errors` for project targets in CI only (not for local dev).
 4. Dependency rules: `MonitorCore` imports only Foundation (no Darwin-specific calls); `TerminalUI` depends on `MonitorCore` types for rendering; `MonitorDarwin` depends on `DarwinSupport`; `RTopCLI` is the only target that wires everything.
 5. Keep App Sandbox disabled; no entitlements (§3.1.6).
 6. Add `README.md` skeleton, `CHANGELOG.md`, `Documentation/` stubs.

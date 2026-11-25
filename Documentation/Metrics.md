@@ -57,7 +57,7 @@ Source: the dispatch memory-pressure source (normal / warning / critical), deliv
 
 - The state is **unknown** until the first notification, and a quiet source does not mean "normal".
 - The last state is kept with the monotonic time it was observed; the header shows its age ("last notified 1m ago").
-- Pressure is never derived from free memory. Behavior has been exercised on the development machine only (macOS 27); macOS 14 is unverified.
+- Pressure is never derived from free memory. Behavior has been exercised on the development machine only (macOS 27); macOS 26 (the minimum deployment target) is covered only by the Intel CI test run, not by manual pressure testing.
 
 ## CPU topology
 

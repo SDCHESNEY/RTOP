@@ -12,10 +12,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-15-intel]
+        include:
+          # Matches the development machine: macOS 27.0.1, Xcode 27.2, arm64.
+          - os: xcode-27
+            xcode: "27.2"
+          # Newest Intel image available; there is no macOS 27 Intel runner.
+          - os: macos-26-intel
+            xcode: "26.6"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode }}.app
       - name: Record environment
         run: |
           uname -m

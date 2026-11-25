@@ -49,7 +49,7 @@ Parallelizable inside Phase 1/2: Models/Reducer/Sort/Filter (pure) can proceed w
 Tasks:
 1. Reconcile the current Xcode project (`RTOP/RTOP/main.swift`, product `RTOP`) with the spec's SwiftPM layout (§4.3). Decision to record in `Documentation/Architecture.md`: either (a) convert to a Swift package opened in Xcode (spec default), or (b) keep the Xcode project and add local package targets. Prefer (a) with executable product named `rtop`.
 2. Create `Package.swift` with targets: `RTopCLI` (executable), `MonitorCore`, `MonitorDarwin`, `TerminalUI`, `DarwinSupport` (C), and test targets `MonitorCoreTests`, `MonitorDarwinTests`, `TerminalUITests`.
-3. Set platform `.macOS(.v14)`, `swiftLanguageModes: [.v6]`, and strict concurrency; add `-warnings-as-errors` for project targets in CI only (not for local dev).
+3. Set platform `.macOS(.v26)`, `swiftLanguageModes: [.v6]`, and strict concurrency; add `-warnings-as-errors` for project targets in CI only (not for local dev).
 4. Dependency rules: `MonitorCore` imports only Foundation (no Darwin-specific calls); `TerminalUI` depends on `MonitorCore` types for rendering; `MonitorDarwin` depends on `DarwinSupport`; `RTopCLI` is the only target that wires everything.
 5. Keep App Sandbox disabled; no entitlements (§3.1.6).
 6. Add `README.md` skeleton, `CHANGELOG.md`, `Documentation/` stubs.
@@ -84,7 +84,7 @@ Tasks:
 Status: implemented; items marked *partial* or *open* still need a human or CI run.
 
 - [x] Package builds and tests run with the Xcode toolchain (`swift build`, `swift test`: 15 tests passing). *Partial:* not yet opened in the Xcode GUI, and XCTest was replaced by Swift Testing (see `Documentation/Architecture.md`)
-- [x] Toolchain/SDK/deployment/arch recorded (`Documentation/Architecture.md`). CI runner architectures still to be confirmed from the first CI run
+- [x] Toolchain/SDK/deployment/arch recorded (`Documentation/Architecture.md`). CI runners (`xcode-27` arm64, `macos-26-intel` x86_64) recorded in `Documentation/Architecture.md`; architectures still to be confirmed from the first CI run
 - [x] Process IDs, physical memory, host CPU counters read; `leaks` reports 0 leaks. *Partial:* Instruments Allocations run still open
 - [x] SDK interop report written (`Documentation/SDKInteropReport.md`)
 - [ ] Terminal PoC restores state in Terminal.app and iTerm2. *Open:* verified through pseudo-terminal tests and a scripted pty run of the real binary (q, Ctrl-C, SIGTERM, SIGHUP, resize); the manual run in both real terminals is still needed (`rtop --spike-terminal`)
@@ -236,7 +236,7 @@ Status: implemented and automatically verified (233 tests: 111 MonitorCore, 39 M
 - [x] History bounded; pause doesn't block input or corrupt baselines (`HistoryBufferTests`, pause reducer tests; the collector keeps running while paused)
 - [x] Goldens pass at required sizes/color modes (80×24, 120×40, 20×5; mono and 256-color compared in `OverviewViewTests`). *Note:* color is limited to bar/pressure foregrounds until Phase 4 themes
 - [ ] Reference comparisons recorded with conditions, discrepancies explained. *Open:* WP2.8 comparison against Activity Monitor, `top -l 2`, `ps`, `vm_stat` needs a human-run session; no figures are claimed
-- [ ] Pressure behavior validated on macOS 14. *Open:* only the development machine (macOS 27) was available; `unknown` until the first notification
+- [ ] Pressure behavior validated on macOS 26. *Open:* only the development machine (macOS 27) was available; `unknown` until the first notification
 - [ ] Tag `v0.2`. *Open:* CHANGELOG is updated; no commit or tag has been made
 
 Decisions taken in Phase 2 (recorded in `Documentation/Architecture.md` and `Metrics.md`): sort direction persists across key changes; the overview is 7 rows at ≥60×20 and one title row below; Space/`s`/`r`/`/` are text while the filter editor is open; stale = three ticks without a snapshot; free pages exclude speculative pages like `vm_stat`.

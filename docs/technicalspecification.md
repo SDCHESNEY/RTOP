@@ -6,7 +6,7 @@
 **Reference:** `implementation.md`.  
 **Platform:** macOS only. Apple Silicon is the primary architecture; Intel support is included when supported by the selected Xcode toolchain and deployment target.  
 **Interface:** Terminal user interface (TUI), not a SwiftUI desktop application.  
-**Proposed baseline:** macOS 14 or later, Swift 6 language mode, and a stable Xcode release supporting both the deployment target and required architectures. Record the exact Xcode, SDK, and compiler versions at project setup. The baseline is a design choice, not a claim about minimum API requirements.
+**Proposed baseline:** macOS 26 or later (swift-tools-version 6.2), Swift 6 language mode, and a stable Xcode release supporting both the deployment target and required architectures. Record the exact Xcode, SDK, and compiler versions at project setup. The baseline is a design choice, not a claim about minimum API requirements.
 
 ## 1. Purpose and Scope
 

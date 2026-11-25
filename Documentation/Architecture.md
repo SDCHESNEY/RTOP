@@ -8,10 +8,18 @@
 | Swift | 6.4.2 (swiftlang-6.4.2.1.9), language mode 6 |
 | SDK | macOS 27.2 |
 | Host OS | macOS 27.0.1, arm64 |
-| Deployment target | macOS 14.0 (`minos 14.0` in the built binary) |
+| Deployment target | macOS 26.0 (`minos 26.0` in the built binary) |
+| Package minimums | `swift-tools-version: 6.2`, `.macOS(.v26)` (the newest Intel CI runner provides Xcode 26.6) |
 | Architecture policy | arm64 is validated. x86_64 is built in CI only if a runner is available and is otherwise **unvalidated**. |
 
-CI runner labels in `.github/workflows/ci.yml` are provisional: confirm the real architecture from the "Record environment" step of the first run and update this table. The macOS 14 deployment target has been compiled against, **not runtime-tested** on macOS 14.
+## CI runners
+
+| Label | OS | Xcode | Architecture |
+|---|---|---|---|
+| `xcode-27` | macOS 27.0.1 | 27.2 (27B52), matches the development machine | arm64 |
+| `macos-26-intel` | macOS 26 | 26.6 | x86_64 |
+
+There is no macOS 27 Intel runner, so `macos-26-intel` is the newest available x86_64 environment. The "Record environment" step of each job logs the actual architecture and toolchain; confirm these from the first run.
 
 ## Decisions
 
