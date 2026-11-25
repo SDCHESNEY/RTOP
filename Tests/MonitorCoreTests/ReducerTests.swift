@@ -78,7 +78,7 @@ import Testing
         load(&state, sequence: 1, pids: [1, 2, 3])
         _ = Reducer.reduce(&state, .key(.down))
         #expect(state.selection == Fixtures.identity(2))
-        load(&state, sequence: 2, pids: [0 + 9, 8, 3, 2, 1]) // new rows sort before and after
+        load(&state, sequence: 2, pids: [9, 8, 3, 2, 1]) // new rows sort before and after
         #expect(state.selection == Fixtures.identity(2))
         #expect(state.selectedIndex == 1)
     }

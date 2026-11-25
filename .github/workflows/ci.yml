@@ -15,7 +15,7 @@ jobs:
         os: [macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Record environment
         run: |
           uname -m
@@ -33,7 +33,7 @@ jobs:
         run: |
           mkdir -p artifacts
           swift test --show-codecov-path > artifacts/codecov-path.txt || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: results-${{ matrix.os }}
