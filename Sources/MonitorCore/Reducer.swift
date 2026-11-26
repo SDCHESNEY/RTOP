@@ -51,7 +51,7 @@ public enum Reducer {
 
     private static func handle(_ key: KeyEvent, in state: inout AppState) -> [Effect] {
         if key == .ctrl("c") { return [.exit] }
-        state.messages.removeAll { $0.kind == .signalResult } // a result is shown until the next key
+        state.messages.removeAll { $0.kind == .signalResult || $0.kind == .configWarning } // shown until the next key
         // Context precedence: see `KeyBindings.precedence`.
         if state.filterEditor != nil { return handleFilterEditing(key, in: &state) }
         if state.signalWorkflow != nil { return handleSignalDialog(key, in: &state) }

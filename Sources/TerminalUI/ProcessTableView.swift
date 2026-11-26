@@ -116,7 +116,11 @@ public enum ProcessTableView {
         } else if state.showHelp {
             text = KeyBindings.footer(for: .help)
         } else if let message = state.messages.last {
-            let prefix = message.kind == .refreshFailed ? "refresh failed: " : ""
+            let prefix = switch message.kind {
+            case .refreshFailed: "refresh failed: "
+            case .configWarning: "config: "
+            case .signalResult: ""
+            }
             text = prefix + TextSanitizer.sanitize(message.text)
         } else if state.detailPane != nil {
             text = KeyBindings.footer(for: .details)
@@ -154,7 +158,7 @@ public enum ProcessTableView {
         var x = 0
         for column in columns {
             let w = widths[column] ?? 0
-            var title = column.title
+            var title = column == .cpu && state.normalizeCPU ? "NCPU%" : column.title
             if column.sortKey == state.sortKey {
                 title += state.sortDescending ? options.descending : options.ascending
             }
@@ -192,7 +196,7 @@ public enum ProcessTableView {
             var x = 0
             for column in columns {
                 let w = widths[column] ?? 0
-                var content = text(for: column, row: row)
+                var content = text(for: column, row: row, state: state)
                 if column == .name, depth > 0 { content = treeIndent(depth: depth, options: options) + content }
                 buffer.write(cellText(content, column: column, width: w), x: x, y: y, style: style)
                 x += w + 1
@@ -207,13 +211,13 @@ public enum ProcessTableView {
     }
 
     /// All OS-derived strings pass through the sanitizer here.
-    private static func text(for column: Column, row: ProcessSummary) -> String {
+    private static func text(for column: Column, row: ProcessSummary, state: AppState) -> String {
         switch column {
         case .pid: return String(row.identity.pid)
         case .ppid: return row.parentPID.value.map { String($0) } ?? unavailableGlyph
         case .name: return TextSanitizer.sanitize(row.name)
         case .user: return row.userName.value.map(TextSanitizer.sanitize) ?? unavailableGlyph
-        case .cpu: return row.cpuPercent.value.map { String(format: "%.1f", $0) } ?? unavailableGlyph
+        case .cpu: return state.displayedCPUPercent(row).map { String(format: "%.1f", $0) } ?? unavailableGlyph
         case .memory: return row.residentBytes.value.map(ByteFormat.short) ?? unavailableGlyph
         case .state:
             switch row.status {

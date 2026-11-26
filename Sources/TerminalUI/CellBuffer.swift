@@ -22,15 +22,26 @@ public struct Style: Sendable, Equatable {
     public static let plain = Style()
 
     /// SGR sequence that sets exactly this style from a reset state.
-    var escapeSequence: String {
+    var escapeSequence: String { escapeSequence(truecolor: false) }
+
+    /// With `truecolor`, palette indexes are emitted as 24-bit RGB (see `Palette`).
+    func escapeSequence(truecolor: Bool) -> String {
         var codes = ["0"]
         if bold { codes.append("1") }
         if dim { codes.append("2") }
         if underline { codes.append("4") }
         if inverse { codes.append("7") }
-        if let foreground { codes.append("38;5;\(foreground)") }
-        if let background { codes.append("48;5;\(background)") }
+        if let foreground { codes.append(Self.color(38, foreground, truecolor)) }
+        if let background { codes.append(Self.color(48, background, truecolor)) }
         return "\u{1B}[" + codes.joined(separator: ";") + "m"
+    }
+}
+
+extension Style {
+    fileprivate static func color(_ code: Int, _ index: UInt8, _ truecolor: Bool) -> String {
+        guard truecolor else { return "\(code);5;\(index)" }
+        let (r, g, b) = Palette.rgb(index)
+        return "\(code);2;\(r);\(g);\(b)"
     }
 }
 

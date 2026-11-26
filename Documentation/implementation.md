@@ -81,13 +81,15 @@ Tasks:
 - Archive test results/coverage artifacts. Mark any unavailable architecture as "unvalidated".
 
 ### Phase 0 Gate
-- [ ] Xcode opens package, builds, runs XCTest (§12 P0)
-- [ ] Toolchain/SDK/deployment/arch recorded
-- [ ] Process IDs, physical memory, host CPU counters read with no leaks
-- [ ] SDK interop report written and checked in
-- [ ] Terminal PoC restores state in Terminal.app and iTerm2
-- [ ] No helper, entitlement workaround, or third-party runtime
-- [ ] **Re-estimate Phases 1–4** and update this document
+Status: implemented; items marked *partial* or *open* still need a human or CI run.
+
+- [x] Package builds and tests run with the Xcode toolchain (`swift build`, `swift test`: 15 tests passing). *Partial:* not yet opened in the Xcode GUI, and XCTest was replaced by Swift Testing (see `Documentation/Architecture.md`)
+- [x] Toolchain/SDK/deployment/arch recorded (`Documentation/Architecture.md`). CI runners (`xcode-27` arm64, `macos-26-intel` x86_64) recorded in `Documentation/Architecture.md`; architectures still to be confirmed from the first CI run
+- [x] Process IDs, physical memory, host CPU counters read; `leaks` reports 0 leaks. *Partial:* Instruments Allocations run still open
+- [x] SDK interop report written (`Documentation/SDKInteropReport.md`)
+- [ ] Terminal PoC restores state in Terminal.app and iTerm2. *Open:* verified through pseudo-terminal tests and a scripted pty run of the real binary (q, Ctrl-C, SIGTERM, SIGHUP, resize); the manual run in both real terminals is still needed (`rtop --spike-terminal`)
+- [x] No helper, entitlement workaround, or third-party runtime
+- [ ] **Re-estimate Phases 1–4** and update this document. *Open:* pending review of the report and the manual terminal check
 
 ---
 
@@ -162,14 +164,18 @@ Tests: golden fixtures at 80×24 and 20×5 (add 120×40 in Phase 2).
 - Refuse to run if stdin/stdout aren't TTYs with a clear diagnostic.
 
 ### Phase 1 Gate (spec §12)
-- [ ] Rows show PID, name, user, CPU, memory, state when available
-- [ ] Restricted metadata → partial rows, not failed refresh
-- [ ] CPU unavailable until a second valid measurement
-- [ ] Refresh interval validation; no unbounded queued refreshes
-- [ ] q / Ctrl-C / handled SIGTERM / recoverable errors restore the terminal
-- [ ] Resize tests incl. 20×5 don't crash (pty test + manual)
-- [ ] State transitions and sampler tested with fakes
-- [ ] Tag `v0.1`; update CHANGELOG
+Status: implemented and automatically verified (148 tests: 50 MonitorCore, 32 MonitorDarwin, 66 TerminalUI; debug and release builds clean under warnings-as-errors; real binary exercised in a pty). Items marked *open* need a human or a decision.
+
+- [x] Rows show PID, name, user, CPU, memory, state when available (golden tests at 80×24 / 40×8 / 20×5; live run)
+- [x] Restricted metadata → partial rows, not failed refresh. On the dev machine ~⅓ of processes return EPERM for `proc_pidinfo`; they appear as partial rows (see `Documentation/Architecture.md`)
+- [x] CPU unavailable until a second valid measurement (unit, fake-collector, and live tests)
+- [x] Refresh interval validation; no unbounded queued refreshes (`OptionsTests`, `SamplingWorkerTests`)
+- [x] q / Ctrl-C / Esc / handled SIGTERM / SIGHUP / SIGINT restore the terminal (`Scripts/pty_lifecycle_check.py`, exact `termios` compared in `Scripts/pty_idle_check.py`). *Open:* the same manual run in real Terminal.app and iTerm2
+- [x] Resize incl. 20×5, 5×2, 1×1 and a resize storm do not crash (render-bounds test over widths 1–130, pty script). *Open:* manual check in a real terminal
+- [x] State transitions and sampler tested with fakes
+- [ ] Tag `v0.1`. *Open:* CHANGELOG is updated; no commit or tag has been made
+
+Decisions taken in Phase 1 (all recorded in `Documentation/Architecture.md`): selection-loss rule, PID-only identity for restricted processes, Escape quits until modal/filter contexts exist, Ctrl-Z/SIGTSTP disabled, default order is PID ascending.
 
 ---
 
@@ -221,14 +227,19 @@ Tests: bounds, wrap, unavailable samples, pause/resume reducer.
 - Comparison session vs Activity Monitor, `top -l 2`, `ps`, `vm_stat`, `sysctl`: record hardware, macOS, toolchain, refresh interval, CPU convention, sample alignment, process identity in `Documentation/Metrics.md`. Use controlled single-core workload (e.g., `yes > /dev/null`) and treat spec thresholds as investigation guides (§11.2).
 
 ### Phase 2 Gate (spec §12)
-- [ ] CPU units, memory definitions, unknown-pressure semantics documented
-- [ ] Core-class labels only with validated mapping; otherwise counts separate
-- [ ] Sorting deterministic; filtering per grammar
-- [ ] Identity-based selection holds across exit/filter/sort
-- [ ] History bounded; pause doesn't block input or corrupt baselines
-- [ ] Goldens pass at required sizes/color modes
-- [ ] Reference comparisons recorded with conditions, discrepancies explained
-- [ ] Tag `v0.2`
+Status: implemented and automatically verified (233 tests: 111 MonitorCore, 39 MonitorDarwin, 83 TerminalUI; release build clean under warnings-as-errors; real binary exercised in a pty). Items marked *open* need a human or a decision.
+
+- [x] CPU units, memory definitions, unknown-pressure semantics documented (`Documentation/Metrics.md`)
+- [x] Core-class labels only with validated mapping; otherwise counts separate. No mapping is validated, so per-core bars are "unclassified" and `hw.perflevel*` counts are printed separately
+- [x] Sorting deterministic; filtering per grammar (`ProcessSortTests`, `ProcessFilterTests`, seeded property tests). Plain terms match the name only until Phase 3 collects command lines
+- [x] Identity-based selection holds across exit/filter/sort (`ReducerPhase2Tests`)
+- [x] History bounded; pause doesn't block input or corrupt baselines (`HistoryBufferTests`, pause reducer tests; the collector keeps running while paused)
+- [x] Goldens pass at required sizes/color modes (80×24, 120×40, 20×5; mono and 256-color compared in `OverviewViewTests`). *Note:* color is limited to bar/pressure foregrounds until Phase 4 themes
+- [ ] Reference comparisons recorded with conditions, discrepancies explained. *Open:* WP2.8 comparison against Activity Monitor, `top -l 2`, `ps`, `vm_stat` needs a human-run session; no figures are claimed
+- [ ] Pressure behavior validated on macOS 26. *Open:* only the development machine (macOS 27) was available; `unknown` until the first notification
+- [ ] Tag `v0.2`. *Open:* CHANGELOG is updated; no commit or tag has been made
+
+Decisions taken in Phase 2 (recorded in `Documentation/Architecture.md` and `Metrics.md`): sort direction persists across key changes; the overview is 7 rows at ≥60×20 and one title row below; Space/`s`/`r`/`/` are text while the filter editor is open; stale = three ticks without a snapshot; free pages exclude speculative pages like `vm_stat`.
 
 ---
 
@@ -275,15 +286,19 @@ Tests: every transition, PID reuse mid-confirmation, selection change while moda
 - `Documentation/Permissions.md`: unprivileged visibility limits, EPERM cases, GUI app/service restart observations (record real observations only, no universal claims).
 
 ### Phase 3 Gate (spec §12)
-- [ ] Every signal needs explicit confirmation; protected targets need second stage
-- [ ] PID 1, self, invalid, unverifiable identities cannot be signalled
-- [ ] Identity rechecked immediately pre-delivery; race documented
-- [ ] Success = accepted, not dead
-- [ ] Owned-child tests: terminate, stop/continue, explicit escalation
-- [ ] Stale detail results rejected; inaccessible command line handled
-- [ ] Tree handles missing parents and cycles
-- [ ] Permission/service behavior documented without universal claims
-- [ ] Tag `v0.3`
+Status: implemented and automatically verified (352 tests: 185 MonitorCore, 70 MonitorDarwin, 97 TerminalUI; debug and release builds clean under warnings-as-errors; real binary exercised in a pty, including a real SIGTERM to an owned child). Items marked *open* need a human or a decision.
+
+- [x] Every signal needs explicit confirmation; protected targets need second stage (`SignalWorkflowTests`; Enter cannot satisfy stage 2)
+- [x] PID 1, self, invalid, unverifiable identities cannot be signalled (`ProcessControllerGuardTests` individually per guard; reducer refuses before opening the dialog)
+- [x] Identity rechecked immediately pre-delivery; race documented (`Documentation/Permissions.md`)
+- [x] Success = accepted, not dead ("Signal sent … may still be running"; ignored-SIGTERM child test)
+- [x] Owned-child tests: terminate, stop/continue, explicit escalation, ESRCH after exit, forged identity (`OwnedChildSignalTests`)
+- [x] Stale detail results rejected; inaccessible command line handled (`DetailsReducerTests`, `DarwinDetailsTests`, `ProcArgsParserTests`)
+- [x] Tree handles missing parents and cycles (`ProcessTreeTests`, incl. PID reuse, depth bound, 5,000 nodes)
+- [ ] Permission/service behavior documented without universal claims. *Open:* visibility and workflow are documented; real GUI-app/service restart observations still need a human-run session and are intentionally not claimed
+- [ ] Tag `v0.3`. *Open:* CHANGELOG is updated; no commit or tag has been made
+
+Decisions taken in Phase 3 (recorded in `Documentation/Architecture.md`): the detail pane replaces the table area; the "Unattached" group is a non-selectable-target row with PID -1; Enter confirms stage 1 but only `y` confirms the protected stage 2; an open dialog is cancelled when its target's identity leaves the snapshot; PID-only (restricted) rows cannot be signalled; `ds_list_pids` drops mid-list zero entries.
 
 ---
 
@@ -340,17 +355,22 @@ Tests: precedence matrix, malformed JSON, unknown keys, bounds, overflow.
 | Scenarios | Startup/quit, resize incl. 20×5, filter/sort/tree/details, signal workflow on owned child, color modes, `NO_COLOR`, SIGTERM/SIGHUP exit, pipe/non-TTY refusal |
 
 ### Phase 4 Gate (spec §12, §15)
-- [ ] Configuration precedence and error policies tested
-- [ ] Help from shared binding table; keyboard-only complete
-- [ ] Sanitization and decoding withstand hostile input
-- [ ] Release matrix passes in three terminals
-- [ ] Instruments review: no known leaks / unbounded allocation
-- [ ] Performance targets measured and met or revised with justification
-- [ ] Architecture artifacts runtime-tested on advertised hardware
-- [ ] Homebrew install, man page, completions, uninstall validated
-- [ ] Signing/notarization status documented accurately
-- [ ] Mouse (if shipped) passes selection/scroll/sort/cleanup tests
-- [ ] Coverage ≥70% on core logic; every destructive-action guard tested individually
+Status: implemented and automatically verified (403 tests: 214 MonitorCore, 80 MonitorDarwin, 109 TerminalUI; debug and release builds clean under warnings-as-errors; real binary exercised in a pty with the new options; `Scripts/package.sh` run for arm64). Items marked *open* need a human, hardware, or a decision. WP4.5 (mouse) was skipped as the plan allows; `--no-mouse` is accepted and has no effect.
+
+- [x] Configuration precedence and error policies tested (`ConfigurationTests`, `OptionsTests`: precedence matrix incl. an explicit `false` beating a file `true`, malformed JSON, unknown keys, bounds, overflow, default-vs-explicit file behavior)
+- [x] Help from shared binding table; keyboard-only complete (`KeyBindings` drives footer and `?` help since Phase 3; no action needs a mouse)
+- [x] Sanitization and decoding withstand hostile input (`Phase4ViewTests.hostileProcessMetadata…` checks every scalar of rendered frames for ESC/C0/C1/bidi in table and detail views, ASCII and true-color; seeded decoder fuzz; log lines sanitized in `FileLoggerTests`). Bracketed paste is never enabled
+- [ ] Release matrix passes in three terminals. *Open:* only the pty scripts were run (q, Ctrl-C, Esc, SIGTERM, SIGHUP, SIGINT, resize storm, SIGTSTP, termios compare); Terminal.app, iTerm2, and a third terminal need a human (`Documentation/ReleaseChecklist.md`). The plan's "macOS 14" row cannot apply: the deployment target is macOS 26
+- [ ] Instruments review: no known leaks / unbounded allocation. *Open:* no Allocations/Leaks run over 30 minutes (only the Phase 0 `leaks` check)
+- [ ] Performance targets measured and met or revised with justification. *Partial:* 5,000-process render median ≈1.7 ms (target ≈16 ms) and coarse idle CPU 0.3–1.2 % (target ≈3 %) are met and recorded in `Documentation/Performance.md`; Time Profiler, 30-minute Allocations, and slow-collector latency are *open*
+- [ ] Architecture artifacts runtime-tested on advertised hardware. *Partial:* arm64 built, verified (`lipo -info`, `vtool`, `otool -L`) and run on the development Mac; x86_64 is built only in CI and is **unvalidated**
+- [ ] Homebrew install, man page, completions, uninstall validated. *Partial:* man page passes `mandoc -T lint` (style notes only), zsh completions load under `compinit`, bash script passes `bash -n`; fish not available to test; the Homebrew formula is an unvalidated template (`Packaging/rtop.rb.template`) because there is no release URL
+- [x] Signing/notarization status documented accurately: `Scripts/package.sh` signs/notarizes only when `DEVELOPER_ID`/`NOTARY_PROFILE` are set; nothing has been signed, artifacts are labelled unsigned; an MIT `LICENSE` file is in the repository and is included in the archive
+- [x] Mouse (if shipped): not shipped, nothing to test
+- [x] Coverage ≥70% on core logic (`MonitorCore` 98.3 % of lines in `swift test --enable-code-coverage`); every destructive-action guard is tested individually (`ProcessControllerGuardTests`, Phase 3)
+- [ ] Tag `v1.0`. *Open:* the open items above; CHANGELOG is updated; no commit or tag has been made
+
+Decisions taken in Phase 4 (recorded in `Documentation/Architecture.md` and `Configuration.md`): `NO_COLOR` beats `--color` (the specification governs over the plan's "overrides"); `auto` never picks true color; true color is a palette-index→RGB conversion in the renderer; any wrong type or out-of-range value invalidates the whole config file (no clamping); sort key `status` maps to the internal `.state`; config warnings show in the footer until the next key; `AppState`/reducer stay free of logging, which lives in `main.swift`.
 
 ---
 

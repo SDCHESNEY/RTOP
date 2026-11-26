@@ -174,21 +174,21 @@ enum OverviewView {
         x += 2
         x += buffer.write("pressure", x: x, y: y, style: Style(dim: true)) + 1
 
-        let (text, foreground) = pressureText(snapshot)
+        let (text, foreground) = pressureText(snapshot, theme: options.theme)
         buffer.write(text, x: x, y: y, style: options.style(foreground: foreground))
     }
 
     /// `unknown` until the OS has delivered a notification; afterwards the last
     /// reported state with its age. Never inferred from free memory.
-    static func pressureText(_ snapshot: Snapshot) -> (String, UInt8?) {
+    static func pressureText(_ snapshot: Snapshot, theme: Theme = .dark) -> (String, UInt8?) {
         let reading = snapshot.pressure
         let name: String
         var foreground: UInt8?
         switch reading.state {
         case .unknown: return ("unknown (no notification yet)", nil)
         case .normal: name = "normal"
-        case .warning: name = "warning"; foreground = 178
-        case .critical: name = "critical"; foreground = 160
+        case .warning: name = "warning"; foreground = theme.warning
+        case .critical: name = "critical"; foreground = theme.critical
         }
         guard let observed = reading.observedAtNanoseconds, snapshot.capturedAtNanoseconds >= observed else {
             return (name, foreground)

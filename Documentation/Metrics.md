@@ -5,7 +5,7 @@ Covers process CPU, host CPU, resident memory, state, load (Phase 1), and memory
 ## Process CPU %
 
 - Source: `proc_pidinfo(PROC_PIDTASKINFO)` cumulative user + system time, converted from mach absolute time to nanoseconds in the C layer (128-bit intermediate, no overflow).
-- Value: `Δ(cpu ns) / Δ(monotonic ns) × 100` between two successive readings of the **same process identity** (PID + start time). 100 means one logical CPU fully busy ("Irix" convention), so a multithreaded process can exceed 100. Normalizing to total capacity is a Phase 4 option.
+- Value: `Δ(cpu ns) / Δ(monotonic ns) × 100` between two successive readings of the **same process identity** (PID + start time). 100 means one logical CPU fully busy ("Irix" convention), so a multithreaded process can exceed 100. With `--normalize-cpu` (or `normalizeCpu` in the config file) the displayed value is divided by the logical-CPU count (`hw.perflevel*` total, else the number of per-core readings) and the column is headed `NCPU%`; if the count is unknown the value is unavailable (`—`), never unscaled. Sorting is unaffected because the scaling is monotonic.
 - Each process is timestamped immediately after its own task-info read, so slow enumeration does not skew individual rows.
 - The first reading of a process is `unavailable(notYetSampled)`. Also unavailable (and the new reading becomes the baseline): a counter that went backwards, nonpositive elapsed time, or a changed start time (PID reuse). A process whose start time could not be read is never baselined (`collectionFailed`).
 - Elapsed time uses the monotonic uptime clock, never wall-clock time.

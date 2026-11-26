@@ -1,0 +1,22 @@
+# Template: fill in url and sha256 from the real release before use (see Documentation/ReleaseChecklist.md).
+class Rtop < Formula
+  desc "Terminal system monitor for macOS"
+  homepage "https://github.com/OWNER/REPO"
+  url "https://github.com/OWNER/REPO/releases/download/vVERSION/rtop-VERSION-ARCH.tar.gz"
+  sha256 "SHA256_FROM_SHA256SUMS"
+  version "VERSION"
+
+  depends_on :macos
+
+  def install
+    bin.install "rtop"
+    man1.install "man/rtop.1"
+    zsh_completion.install "completions/_rtop"
+    bash_completion.install "completions/rtop.bash" => "rtop"
+    fish_completion.install "completions/rtop.fish"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/rtop --version")
+  end
+end

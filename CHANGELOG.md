@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Phase 4 — polish, configuration, packaging
+- Full CLI from one option table: `--sort`, `--descending`, `--theme`, `--color`, `--normalize-cpu`, `--history-samples`, `--config`, `--no-mouse` alongside `--refresh-ms`. Absent options stay absent, so precedence is CLI > config file > defaults.
+- JSON configuration (`~/Library/Application Support/rtop/config.json`): strict values, unknown-key warnings, missing default file is normal, invalid default file warns and uses defaults, explicit file missing/invalid exits 2. Schema in `Documentation/Configuration.md`.
+- Themes `dark`/`light`/`mono` (`Theme.swift`), optional true-color output, `--color`; `NO_COLOR` always wins.
+- Normalized CPU mode (`NCPU%`); unavailable instead of unscaled when the CPU count is unknown.
+- Diagnostic log (`~/Library/Logs/rtop/rtop.log`): 0600/0700, size-rotated with retention, rate-limited, sanitized, no symlink following, no command lines.
+- Man page and zsh/bash/fish completions generated from the option table; `Scripts/package.sh` builds, verifies, archives, and optionally signs/notarizes; Homebrew formula template.
+- Hardening tests: hostile process metadata cannot put control sequences in a frame; 5,000-process render benchmark.
+- `Documentation/Configuration.md`, `Performance.md`, `ReleaseChecklist.md`.
+- Not done: mouse support (deferred past v1.0, `--no-mouse` is accepted), bracketed paste (not enabled), suspend/resume (Ctrl-Z stays disabled).
+
 ### Phase 3 — details, tree, safe signalling
 - Detail pane (`d`/Enter): path, command line (from `KERN_PROCARGS2`, arguments only), parent, user, start time, CPU, resident/virtual size, threads. Lazy, generation-tagged, identity-checked; unavailable fields show their reason.
 - `ProcArgsParser` (bounds-checked, truncation-aware) and an identity-keyed LRU `DetailCache`.

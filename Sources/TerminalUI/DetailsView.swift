@@ -50,7 +50,9 @@ enum DetailsView {
             }))
             lines.append(("State", "\(process.status)"))
             lines.append(("Started", pane.identity.start.map(timestamp) ?? "\(ProcessTableView.unavailableGlyph) (could not be read)"))
-            lines.append(("CPU %", show(process.cpuPercent) { String(format: "%.1f", $0) }))
+            lines.append(("CPU %", state.displayedCPUPercent(process).map {
+                String(format: "%.1f", $0) + (state.normalizeCPU ? " (share of all CPUs)" : " (100 = one core)")
+            } ?? "\(ProcessTableView.unavailableGlyph) (unavailable)"))
             lines.append(("Resident", show(process.residentBytes, ByteFormat.short)))
         }
         guard let details = pane.details else {

@@ -79,7 +79,8 @@ public struct SignalWorkflow: Sendable, Equatable {
 }
 
 public struct StatusMessage: Sendable, Equatable {
-    public enum Kind: Sendable, Equatable { case refreshFailed, signalResult }
+    /// `configWarning` is shown until the next key, like `signalResult`.
+    public enum Kind: Sendable, Equatable { case refreshFailed, signalResult, configWarning }
     public var kind: Kind
     public var text: String
 
@@ -128,8 +129,24 @@ public struct AppState: Sendable, Equatable {
     public var ownPID: Int32 = 0
     public var messages: [StatusMessage] = []
     public var refreshIntervalMilliseconds: Int
+    /// Divide process CPU by the logical-CPU count (default: 100% = one core).
+    public var normalizeCPU = false
 
     public static let staleAfterTicks = 3
+
+    /// Process CPU in the selected convention. Normalizing needs the logical-CPU
+    /// count; without it the value is unavailable rather than silently unscaled.
+    public func displayedCPUPercent(_ process: ProcessSummary) -> Double? {
+        guard let percent = process.cpuPercent.value else { return nil }
+        guard normalizeCPU else { return percent }
+        guard let count = logicalCPUCount, count > 0 else { return nil }
+        return percent / Double(count)
+    }
+
+    public var logicalCPUCount: Int? {
+        if let logical = snapshot?.topology.value?.logicalCPUs { return logical }
+        return snapshot?.cpu.value.map(\.perCorePercent.count)
+    }
 
     public init(
         terminalSize: TerminalSize, refreshIntervalMilliseconds: Int = 1000, historyCapacity: Int = 60

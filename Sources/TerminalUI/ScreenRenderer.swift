@@ -5,8 +5,10 @@
 /// string in one batch and calls `invalidate()` if the write failed.
 public struct ScreenRenderer {
     private var previous: CellBuffer?
+    private let truecolor: Bool
 
-    public init() {}
+    /// `truecolor` emits palette colors as 24-bit sequences.
+    public init(truecolor: Bool = false) { self.truecolor = truecolor }
 
     /// Forces the next frame to repaint everything (after resize or a failed write).
     public mutating func invalidate() { previous = nil }
@@ -32,7 +34,7 @@ public struct ScreenRenderer {
                 let cell = buffer[x, y]
                 guard let glyph = cell.glyph else { continue } // right half of a wide character
                 if cell.style != current {
-                    out += cell.style.escapeSequence
+                    out += cell.style.escapeSequence(truecolor: truecolor)
                     current = cell.style
                 }
                 out.append(glyph)

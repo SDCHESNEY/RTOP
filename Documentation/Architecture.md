@@ -70,3 +70,15 @@ Run the actual TUI from a real terminal. To step through it in Xcode, launch `rt
 - **Test children.** Signal tests spawn with `posix_spawn` and reset the child's signal dispositions/mask. Foundation's `Process` deadlocked when several tests spawned and waited concurrently, and a child inherits *ignored* signals from the test process.
 - **PID-only rows cannot be signalled** (no verifiable identity). This includes the restricted rows described under Phase 1; they are mostly other users' or system processes the user could not signal anyway.
 
+
+## Phase 4 design notes
+
+- **Settings.** `PartialSettings` (every field optional) is what both the CLI parser and the config file produce; `Settings.resolve(cli:file:)` applies CLI > file > defaults. `SettingValue` holds the value rules (ranges, names) so both sources enforce the same ones. Configuration parsing and loading live in `MonitorCore` (Foundation only) so they are testable without a terminal.
+- **Option table drives everything.** `Options.specs` generates `--help`, the man page, and the zsh/bash/fish completions (`OptionDocs`); tests assert each visible option appears in each.
+- **Sort key spelling.** The CLI/config say `status`; the internal key is `.state`.
+- **`NO_COLOR` vs `--color`.** The specification says `NO_COLOR` still disables color, so it beats `--color 256|truecolor` (the plan text says `--color` overrides; the specification governs). Explicit `256`/`truecolor` are honored even when `TERM` looks unhelpful; `auto` never selects true color.
+- **True color** converts the 256-palette index to RGB in `ScreenRenderer` (`Palette`); views still work in palette indexes, so themes need no second code path.
+- **Config warnings** are a `StatusMessage.Kind.configWarning` shown in the footer until the next key (like signal results) and also logged.
+- **Logger** (`FileLogger`, MonitorDarwin): serial queue, lazy creation, `O_NOFOLLOW`, rotation by size, per-key rate limiting. It is not injected into the reducer (reducers stay pure); `main.swift` logs lifecycle events, config warnings, and collection failures.
+- **Deployment target** is macOS 26 (`Package.swift`, `vtool` reports `minos 26.0`). The plan's release matrix mentions macOS 14 as the minimum; that row cannot apply unless the deployment target is lowered and re-tested.
+- **Not implemented**: mouse (WP4.5, optional), bracketed paste (never enabled, so pasted text cannot be misread), suspend/resume (disabled and documented).

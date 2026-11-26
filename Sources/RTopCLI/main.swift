@@ -12,7 +12,8 @@ func writeError(_ message: String) {
 /// Runs the interactive monitor and returns the process exit code
 /// (0 normal exit, 1 startup/runtime failure; usage errors are handled earlier).
 @MainActor
-func runMonitor(refreshMilliseconds: Int) async -> Int32 {
+func runMonitor(settings: Settings, configWarnings: [String], logger: FileLogger) async -> Int32 {
+    let refreshMilliseconds = settings.refreshMilliseconds
     // Suspension is disabled in the first release: raw mode already turns
     // Ctrl-Z into an ordinary byte, and ignoring SIGTSTP covers `kill -TSTP`.
     // A dead terminal must surface as a write error, not kill the process.
@@ -22,6 +23,7 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
     var signalFD: Int32 = -1
     guard ds_signal_bridge_install(&signalFD).kind == DS_OK else {
         writeError("cannot install signal handlers")
+        logger.log(.error, "cannot install signal handlers")
         return 1
     }
     defer { ds_signal_bridge_remove() }
@@ -29,18 +31,27 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
     let session = TerminalSession()
     do { try session.enter() } catch {
         writeError("\(error)")
+        logger.log(.error, "cannot enter terminal mode: \(error)")
         return 1
     }
     defer { session.restore() } // runs after the worker and input threads are joined (below)
 
     var state = AppState(
         terminalSize: session.size() ?? TerminalSize(columns: 80, rows: 24),
-        refreshIntervalMilliseconds: refreshMilliseconds
+        refreshIntervalMilliseconds: refreshMilliseconds,
+        historyCapacity: settings.historySamples
     )
     state.ownPID = getpid()
+    state.sortKey = settings.sortKey
+    state.sortDescending = settings.descending
+    state.normalizeCPU = settings.normalizeCPU
+    if !configWarnings.isEmpty {
+        state.messages.append(StatusMessage(kind: .configWarning, text: configWarnings.joined(separator: "; ")))
+    }
     let controller = ProcessController()
-    var renderer = ScreenRenderer()
-    let renderOptions = RenderOptions.detect(environment: ProcessInfo.processInfo.environment)
+    let renderOptions = RenderOptions.detect(
+        environment: ProcessInfo.processInfo.environment, theme: settings.theme, color: settings.color)
+    var renderer = ScreenRenderer(truecolor: renderOptions.color == .truecolor)
 
     // All inputs funnel into one stream consumed on the main actor.
     let (actions, sink) = AsyncStream<Action>.makeStream()
@@ -62,7 +73,9 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
         for await event in worker.events {
             switch event {
             case .snapshot(let snapshot): sink.yield(.snapshot(snapshot))
-            case .failed(let sequence, let message): sink.yield(.collectionFailed(sequence: sequence, message: message))
+            case .failed(let sequence, let message):
+                logger.log(.warning, "collection failed: \(message)", rateLimitKey: "collection-failed")
+                sink.yield(.collectionFailed(sequence: sequence, message: message))
             }
         }
     }
@@ -87,7 +100,7 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
         return false
     }
 
-    if !draw() { exitCode = 1 }
+    if !draw() { exitCode = 1; logger.log(.error, "terminal write failed at startup") }
     if exitCode == 0 {
         loop: for await action in actions {
             for effect in Reducer.reduce(&state, action) {
@@ -104,6 +117,7 @@ func runMonitor(refreshMilliseconds: Int) async -> Int32 {
             }
             if !draw() {
                 exitCode = 1 // terminal disconnected
+                logger.log(.error, "terminal write failed; exiting")
                 break
             }
         }
@@ -129,10 +143,33 @@ case .success(.help):
 case .success(.version):
     print("\(BuildInfo.productName) \(BuildInfo.version)")
     exit(0)
+case .success(.generateCompletions(let shell)):
+    print(OptionDocs.completions(shell: shell) ?? "", terminator: "")
+    exit(0)
+case .success(.generateMan):
+    let date = Date().formatted(.iso8601.year().month().day())
+    print(OptionDocs.manPage(version: BuildInfo.version, date: date), terminator: "")
+    exit(0)
 case .success(.spikeNative):
     exit(runNativeSpike())
 case .success(.spikeTerminal):
     exit(runTerminalSpike())
-case .success(.run(let refresh)):
-    exit(await runMonitor(refreshMilliseconds: refresh))
+case .success(.run(let request)):
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let loaded: LoadedConfiguration
+    do {
+        loaded = try ConfigLoader.load(explicitPath: request.configPath, defaultURL: ConfigLoader.defaultURL(home: home))
+    } catch {
+        writeError("\(error)")
+        exit(2) // an explicit configuration file must exist and be valid
+    }
+    let settings = Settings.resolve(cli: request.settings, file: loaded.settings)
+
+    let logger = FileLogger(directory: FileLogger.standardDirectory(home: home))
+    logger.log(.info, "start \(BuildInfo.version) refresh=\(settings.refreshMilliseconds)ms theme=\(settings.theme.rawValue) color=\(settings.color.rawValue)")
+    for warning in loaded.warnings { logger.log(.warning, warning) }
+    let code = await runMonitor(settings: settings, configWarnings: loaded.warnings, logger: logger)
+    logger.log(.info, "exit \(code)")
+    logger.flush()
+    exit(code)
 }

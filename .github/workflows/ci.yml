@@ -36,6 +36,13 @@ jobs:
         run: swift test --enable-code-coverage
       - name: Release build (warnings are errors)
         run: swift build -c release -Xswiftc -warnings-as-errors -Xcc -Werror
+      - name: Smoke-test generated docs and CLI exit codes
+        run: |
+          .build/release/rtop --generate-man > /dev/null
+          for sh in zsh bash fish; do .build/release/rtop --generate-completions $sh > /dev/null; done
+          .build/release/rtop --version
+          rc=0; .build/release/rtop --sort bogus 2>/dev/null || rc=$?; test "$rc" -eq 2
+          rc=0; .build/release/rtop --config /nonexistent/rtop.json 2>/dev/null || rc=$?; test "$rc" -eq 2
       - name: Archive coverage
         if: always()
         run: |
